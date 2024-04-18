@@ -17,6 +17,10 @@ import OllamaAPIConfig from './ollama';
 import { ProviderConfigs } from './types';
 import GroqConfig from './groq';
 import SegmindConfig from './segmind';
+import JinaConfig from './jina';
+import FireworksAIConfig from './fireworks-ai';
+import WorkersAiConfig from './workers-ai';
+import RekaAIConfig from './reka-ai';
 
 const Providers: { [key: string]: ProviderConfigs } = {
   openai: OpenAIConfig,
@@ -37,6 +41,10 @@ const Providers: { [key: string]: ProviderConfigs } = {
   bedrock: BedrockConfig,
   groq: GroqConfig,
   segmind: SegmindConfig,
+  jina: JinaConfig,
+  'fireworks-ai': FireworksAIConfig,
+  'workers-ai': WorkersAiConfig,
+  'reka-ai': RekaAIConfig,
 };
 
 export default Providers;
