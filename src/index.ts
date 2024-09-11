@@ -39,7 +39,7 @@ const app = new Hono();
 
 app.use('*', (c, next) => {
   const runtime = getRuntimeKey();
-  const runtimesThatDontNeedCompression = ['lagon', 'workerd', 'node'];
+  const runtimesThatDontNeedCompression = ['lagon', 'workerd', 'node', 'edge-light'];
   if (runtimesThatDontNeedCompression.includes(runtime)) {
     return next();
   }
