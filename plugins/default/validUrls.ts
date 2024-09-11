@@ -4,7 +4,6 @@ import {
   PluginHandler,
   PluginParameters,
 } from '../types';
-import dns from 'dns';
 import { getText } from '../utils';
 
 export const handler: PluginHandler = async (
@@ -21,17 +20,8 @@ export const handler: PluginHandler = async (
 
     // Find all URLs in the content, they may or may not start with http(s)
     const urls = content.match(/(https?:\/\/[^\s]+)/g) || [];
-    const onlyDNS = parameters.onlyDNS || false;
 
-    if (onlyDNS) {
-      verdict = (await Promise.all(urls.map(checkDNS))).every(
-        (result) => result
-      );
-    } else {
-      verdict = (await Promise.all(urls.map(checkUrl))).every(
-        (result) => result
-      );
-    }
+    verdict = (await Promise.all(urls.map(checkUrl))).every((result) => result);
 
     data = { validURLs: urls };
   } catch (e) {
@@ -44,7 +34,7 @@ export const handler: PluginHandler = async (
 async function checkUrl(target: string): Promise<boolean> {
   const controller = new AbortController();
   const { signal } = controller;
-  let timeoutId: NodeJS.Timeout = setTimeout(() => {}, 0);
+  let timeoutId: NodeJS.Timeout = setTimeout(() => { }, 0);
 
   try {
     // Set a timeout to abort the request if it takes too long
@@ -61,13 +51,4 @@ async function checkUrl(target: string): Promise<boolean> {
     controller.abort(); // Ensure the request is aborted after the fetch
     return false;
   }
-}
-
-async function checkDNS(target: string): Promise<boolean> {
-  return new Promise((resolve) => {
-    const parsedUrl = new URL(target);
-    dns.lookup(parsedUrl.hostname, (err) => {
-      resolve(err === null);
-    });
-  });
 }
