@@ -1,4 +1,5 @@
 import { ANTHROPIC } from '../../globals';
+import { imageUrlToBase64 } from '../../services/imageURLToBase64';
 import {
   Params,
   Message,
@@ -106,71 +107,76 @@ export const AnthropicChatCompleteConfig: ProviderConfig = {
     {
       param: 'messages',
       required: true,
-      transform: (params: Params) => {
+      transform: async (params: Params) => {
         let messages: AnthropicMessage[] = [];
         // Transform the chat messages into a simple prompt
         if (!!params.messages) {
-          params.messages.forEach((msg: Message & AnthropicPromptCache) => {
-            if (msg.role === 'system') return;
+          await Promise.all(
+            params.messages.map(async (msg: Message & AnthropicPromptCache) => {
+              if (msg.role === 'system') return;
 
-            if (msg.role === 'assistant') {
-              messages.push(transformAssistantMessage(msg));
-            } else if (
-              msg.content &&
-              typeof msg.content === 'object' &&
-              msg.content.length
-            ) {
-              const transformedMessage: Record<string, any> = {
-                role: msg.role,
-                content: [],
-              };
-              msg.content.forEach((item) => {
-                if (item.type === 'text') {
-                  transformedMessage.content.push({
-                    type: item.type,
-                    text: item.text,
-                    ...((item as any).cache_control && {
-                      cache_control: { type: 'ephemeral' },
-                    }),
-                  });
-                } else if (
-                  item.type === 'image_url' &&
-                  item.image_url &&
-                  item.image_url.url
-                ) {
-                  const parts = item.image_url.url.split(';');
-                  if (parts.length === 2) {
-                    const base64ImageParts = parts[1].split(',');
-                    const base64Image = base64ImageParts[1];
-                    const mediaTypeParts = parts[0].split(':');
-                    if (mediaTypeParts.length === 2 && base64Image) {
-                      const mediaType = mediaTypeParts[1];
+              if (msg.role === 'assistant') {
+                messages.push(transformAssistantMessage(msg));
+              } else if (
+                msg.content &&
+                typeof msg.content === 'object' &&
+                msg.content.length
+              ) {
+                const transformedMessage: Record<string, any> = {
+                  role: msg.role,
+                  content: [],
+                };
+                await Promise.all(
+                  msg.content.map(async (item) => {
+                    if (item.type === 'text') {
                       transformedMessage.content.push({
-                        type: 'image',
-                        source: {
-                          type: 'base64',
-                          media_type: mediaType,
-                          data: base64Image,
-                        },
+                        type: item.type,
+                        text: item.text,
                         ...((item as any).cache_control && {
                           cache_control: { type: 'ephemeral' },
                         }),
                       });
+                    } else if (
+                      item.type === 'image_url' &&
+                      item.image_url &&
+                      item.image_url.url
+                    ) {
+                      const base64 = await imageUrlToBase64(item.image_url.url);
+                      const parts = base64.split(';');
+                      if (parts.length === 2) {
+                        const base64ImageParts = parts[1].split(',');
+                        const base64Image = base64ImageParts[1];
+                        const mediaTypeParts = parts[0].split(':');
+                        if (mediaTypeParts.length === 2 && base64Image) {
+                          const mediaType = mediaTypeParts[1];
+                          transformedMessage.content.push({
+                            type: 'image',
+                            source: {
+                              type: 'base64',
+                              media_type: mediaType,
+                              data: base64Image,
+                            },
+                            ...((item as any).cache_control && {
+                              cache_control: { type: 'ephemeral' },
+                            }),
+                          });
+                        }
+                      }
                     }
-                  }
-                }
-              });
-              messages.push(transformedMessage as Message);
-            } else if (msg.role === 'tool') {
-              // even though anthropic supports images in tool results, openai doesn't support it yet
-              messages.push(transformToolMessage(msg));
-            } else {
-              messages.push({
-                role: msg.role,
-                content: msg.content,
-              });
-            }
-          });
+                  })
+                );
+                messages.push(transformedMessage as Message);
+              } else if (msg.role === 'tool') {
+                // even though anthropic supports images in tool results, openai doesn't support it yet
+                messages.push(transformToolMessage(msg));
+              } else {
+                messages.push({
+                  role: msg.role,
+                  content: msg.content,
+                });
+              }
+            })
+          );
         }
 
         return messages;

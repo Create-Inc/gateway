@@ -36,11 +36,11 @@ function setNestedProperty(obj: any, path: string, value: any) {
  *
  * @throws {Error} If the provider is not supported.
  */
-const transformToProviderRequestJSON = (
+const transformToProviderRequestJSON = async (
   provider: string,
   params: Params,
   fn: string
-): { [key: string]: any } => {
+): Promise<{ [key: string]: any }> => {
   // Get the configuration for the specified provider
   let providerConfig = ProviderConfigs[provider];
   if (providerConfig.getConfig) {
@@ -72,7 +72,7 @@ const transformToProviderRequestJSON = (
 
         // If a transformation is defined for this parameter, apply it
         if (paramConfig.transform) {
-          value = paramConfig.transform(params);
+          value = await paramConfig.transform(params);
         }
 
         if (
@@ -141,7 +141,7 @@ const transformToProviderRequestJSON = (
  * @param {endpointStrings} fn - The function endpoint being called (e.g., 'complete', 'chatComplete').
  * @returns {Params | FormData} - The transformed request parameters.
  */
-export const transformToProviderRequest = (
+export const transformToProviderRequest = async (
   provider: string,
   params: Params,
   inputParams: Params | FormData,
@@ -149,7 +149,7 @@ export const transformToProviderRequest = (
 ) => {
   return MULTIPART_FORM_DATA_ENDPOINTS.includes(fn)
     ? inputParams
-    : transformToProviderRequestJSON(provider, params as Params, fn);
+    : await transformToProviderRequestJSON(provider, params as Params, fn);
 };
 
 export default transformToProviderRequest;

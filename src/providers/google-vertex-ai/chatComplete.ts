@@ -2,6 +2,7 @@
 // https://cloud.google.com/vertex-ai/generative-ai/docs/multimodal/send-multimodal-prompts#gemini-send-multimodal-samples-drest
 
 import { GOOGLE_VERTEX_AI } from '../../globals';
+import { imageUrlToBase64 } from '../../services/imageURLToBase64';
 import {
   ContentType,
   Message,
@@ -50,106 +51,113 @@ export const VertexGoogleChatCompleteConfig: ProviderConfig = {
     {
       param: 'contents',
       default: '',
-      transform: (params: Params) => {
+      transform: async (params: Params) => {
         let lastRole: GoogleMessageRole | undefined;
         const messages: GoogleMessage[] = [];
 
-        params.messages?.forEach((message: Message) => {
-          // From gemini-1.5 onwards, systemInstruction is supported
-          // Skipping system message and sending it in systemInstruction for gemini 1.5 models
-          if (
-            message.role === 'system' &&
-            !SYSTEM_INSTRUCTION_DISABLED_MODELS.includes(params.model as string)
-          )
-            return;
+        await Promise.all(
+          params.messages?.map(async (message: Message) => {
+            // From gemini-1.5 onwards, systemInstruction is supported
+            // Skipping system message and sending it in systemInstruction for gemini 1.5 models
+            if (
+              message.role === 'system' &&
+              !SYSTEM_INSTRUCTION_DISABLED_MODELS.includes(
+                params.model as string
+              )
+            )
+              return;
 
-          const role = transformOpenAIRoleToGoogleRole(message.role);
-          let parts = [];
+            const role = transformOpenAIRoleToGoogleRole(message.role);
+            let parts = [];
 
-          if (message.role === 'assistant' && message.tool_calls) {
-            message.tool_calls.forEach((tool_call: ToolCall) => {
-              parts.push({
-                functionCall: {
-                  name: tool_call.function.name,
-                  args: JSON.parse(tool_call.function.arguments),
-                },
-              });
-            });
-          } else if (
-            message.role === 'tool' &&
-            typeof message.content === 'string'
-          ) {
-            parts.push({
-              functionResponse: {
-                name: message.name ?? 'gateway-tool-filler-name',
-                response: {
-                  content: message.content,
-                },
-              },
-            });
-          } else if (message.content && typeof message.content === 'object') {
-            message.content.forEach((c: ContentType) => {
-              if (c.type === 'text') {
+            if (message.role === 'assistant' && message.tool_calls) {
+              message.tool_calls.forEach((tool_call: ToolCall) => {
                 parts.push({
-                  text: c.text,
-                });
-              }
-              if (c.type === 'image_url') {
-                const { url } = c.image_url || {};
-
-                if (!url) {
-                  // Shouldn't throw error?
-                  return;
-                }
-
-                // Example: data:image/png;base64,abcdefg...
-                if (url.startsWith('data:')) {
-                  const [mimeTypeWithPrefix, base64Image] =
-                    url.split(';base64,');
-                  const mimeType = mimeTypeWithPrefix.split(':')[1];
-
-                  parts.push({
-                    inlineData: {
-                      mimeType: mimeType,
-                      data: base64Image,
-                    },
-                  });
-
-                  return;
-                }
-
-                // This part is problematic because URLs are not supported in the current implementation.
-                // Two problems exist:
-                // 1. Only Google Cloud Storage URLs are supported.
-                // 2. MimeType is not supported in OpenAI API, but it is required in Google Vertex AI API.
-                // Google will return an error here if any other URL is provided.
-                parts.push({
-                  fileData: {
-                    mimeType: getMimeType(url),
-                    fileUri: url,
+                  functionCall: {
+                    name: tool_call.function.name,
+                    args: JSON.parse(tool_call.function.arguments),
                   },
                 });
-              }
-            });
-          } else if (typeof message.content === 'string') {
-            parts.push({
-              text: message.content,
-            });
-          }
+              });
+            } else if (
+              message.role === 'tool' &&
+              typeof message.content === 'string'
+            ) {
+              parts.push({
+                functionResponse: {
+                  name: message.name ?? 'gateway-tool-filler-name',
+                  response: {
+                    content: message.content,
+                  },
+                },
+              });
+            } else if (message.content && typeof message.content === 'object') {
+              await Promise.all(
+                message.content.map(async (c: ContentType) => {
+                  if (c.type === 'text') {
+                    parts.push({
+                      text: c.text,
+                    });
+                  }
+                  if (c.type === 'image_url') {
+                    if (!c.image_url) return;
+                    const url = await imageUrlToBase64(c.image_url.url);
 
-          // @NOTE: This takes care of the "Please ensure that multiturn requests alternate between user and model."
-          // error that occurs when we have multiple user messages in a row.
-          const shouldCombineMessages =
-            lastRole === role && !params.model?.includes('vision');
+                    if (!url) {
+                      // Shouldn't throw error?
+                      return;
+                    }
 
-          if (shouldCombineMessages) {
-            messages[messages.length - 1].parts.push(...parts);
-          } else {
-            messages.push({ role, parts });
-          }
+                    // Example: data:image/png;base64,abcdefg...
+                    if (url.startsWith('data:')) {
+                      const [mimeTypeWithPrefix, base64Image] =
+                        url.split(';base64,');
+                      const mimeType = mimeTypeWithPrefix.split(':')[1];
 
-          lastRole = role;
-        });
+                      parts.push({
+                        inlineData: {
+                          mimeType: mimeType,
+                          data: base64Image,
+                        },
+                      });
+
+                      return;
+                    }
+
+                    // This part is problematic because URLs are not supported in the current implementation.
+                    // Two problems exist:
+                    // 1. Only Google Cloud Storage URLs are supported.
+                    // 2. MimeType is not supported in OpenAI API, but it is required in Google Vertex AI API.
+                    // Google will return an error here if any other URL is provided.
+                    parts.push({
+                      fileData: {
+                        mimeType: getMimeType(url),
+                        fileUri: url,
+                      },
+                    });
+                  }
+                })
+              );
+            } else if (typeof message.content === 'string') {
+              parts.push({
+                text: message.content,
+              });
+            }
+
+            // @NOTE: This takes care of the "Please ensure that multiturn requests alternate between user and model."
+            // error that occurs when we have multiple user messages in a row.
+            const shouldCombineMessages =
+              lastRole === role && !params.model?.includes('vision');
+
+            if (shouldCombineMessages) {
+              messages[messages.length - 1].parts.push(...parts);
+            } else {
+              messages.push({ role, parts });
+            }
+
+            lastRole = role;
+          }) ?? []
+        );
 
         return messages;
       },

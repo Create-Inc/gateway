@@ -483,7 +483,7 @@ export async function tryPost(
   // Mapping providers to corresponding URLs
   const apiConfig: ProviderAPIConfig = Providers[provider].api;
   // Attach the body of the request
-  const transformedRequestBody = transformToProviderRequest(
+  const transformedRequestBody = await transformToProviderRequest(
     provider,
     params,
     inputParams,

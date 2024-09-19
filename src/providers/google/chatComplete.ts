@@ -1,4 +1,5 @@
 import { GOOGLE } from '../../globals';
+import { imageUrlToBase64 } from '../../services/imageURLToBase64';
 import {
   ContentType,
   Message,
@@ -154,7 +155,7 @@ export const GoogleChatCompleteConfig: ProviderConfig = {
     {
       param: 'contents',
       default: '',
-      transform: (params: Params) => {
+      transform: async (params: Params) => {
         let lastRole: GoogleMessageRole | undefined;
         const messages: GoogleMessage[] = [];
         const systemMessage = SYSTEM_INSTRUCTION_DISABLED_MODELS.includes(
@@ -178,91 +179,96 @@ export const GoogleChatCompleteConfig: ProviderConfig = {
           }) ?? []),
         ];
 
-        fixedMessages.forEach((message: Message) => {
-          const role = transformOpenAIRoleToGoogleRole(message.role);
-          let parts = [];
+        await Promise.all(
+          fixedMessages.map(async (message: Message) => {
+            const role = transformOpenAIRoleToGoogleRole(message.role);
+            let parts = [];
 
-          if (message.role === 'assistant' && message.tool_calls) {
-            message.tool_calls.forEach((tool_call: ToolCall) => {
+            if (message.role === 'assistant' && message.tool_calls) {
+              message.tool_calls.forEach((tool_call: ToolCall) => {
+                parts.push({
+                  functionCall: {
+                    name: tool_call.function.name,
+                    args: JSON.parse(tool_call.function.arguments),
+                  },
+                });
+              });
+            } else if (
+              message.role === 'tool' &&
+              typeof message.content === 'string'
+            ) {
               parts.push({
-                functionCall: {
-                  name: tool_call.function.name,
-                  args: JSON.parse(tool_call.function.arguments),
+                functionResponse: {
+                  name: message.name ?? 'gateway-tool-filler-name',
+                  response: {
+                    content: message.content,
+                  },
                 },
               });
-            });
-          } else if (
-            message.role === 'tool' &&
-            typeof message.content === 'string'
-          ) {
-            parts.push({
-              functionResponse: {
-                name: message.name ?? 'gateway-tool-filler-name',
-                response: {
-                  content: message.content,
-                },
-              },
-            });
-          } else if (message.content && typeof message.content === 'object') {
-            message.content.forEach((c: ContentType) => {
-              if (c.type === 'text') {
-                parts.push({
-                  text: c.text,
-                });
-              }
-              if (c.type === 'image_url') {
-                const { url } = c.image_url || {};
-                if (!url) return;
+            } else if (message.content && typeof message.content === 'object') {
+              await Promise.all(
+                message.content.map(async (c: ContentType) => {
+                  if (c.type === 'text') {
+                    parts.push({
+                      text: c.text,
+                    });
+                  }
+                  if (c.type === 'image_url') {
+                    if (!c.image_url) return;
+                    const url = await imageUrlToBase64(c.image_url.url);
+                    if (!url) return;
 
-                if (url.startsWith('data:')) {
-                  const [mimeTypeWithPrefix, base64Image] =
-                    url.split(';base64,');
-                  const mimeType = mimeTypeWithPrefix.split(':')[1];
+                    if (url.startsWith('data:')) {
+                      const [mimeTypeWithPrefix, base64Image] =
+                        url.split(';base64,');
+                      const mimeType = mimeTypeWithPrefix.split(':')[1];
 
-                  parts.push({
-                    inlineData: {
-                      mimeType: mimeType,
-                      data: base64Image,
-                    },
-                  });
-                } else if (url.startsWith('gs://')) {
-                  parts.push({
-                    fileData: {
-                      mimeType: getMimeType(url),
-                      fileUri: url,
-                    },
-                  });
-                } else {
-                  // NOTE: This block is kept to maintain backward compatibility
-                  // Earlier we were assuming that all images will be base64 with image/jpeg mimeType
-                  parts.push({
-                    inlineData: {
-                      mimeType: 'image/jpeg',
-                      data: c.image_url?.url,
-                    },
-                  });
-                }
-              }
-            });
-          } else if (typeof message.content === 'string') {
-            parts.push({
-              text: message.content,
-            });
-          }
+                      parts.push({
+                        inlineData: {
+                          mimeType: mimeType,
+                          data: base64Image,
+                        },
+                      });
+                    } else if (url.startsWith('gs://')) {
+                      parts.push({
+                        fileData: {
+                          mimeType: getMimeType(url),
+                          fileUri: url,
+                        },
+                      });
+                    } else {
+                      // NOTE: This block is kept to maintain backward compatibility
+                      // Earlier we were assuming that all images will be base64 with image/jpeg mimeType
+                      parts.push({
+                        inlineData: {
+                          mimeType: 'image/jpeg',
+                          data: c.image_url?.url,
+                        },
+                      });
+                    }
+                  }
+                })
+              );
+            } else if (typeof message.content === 'string') {
+              parts.push({
+                text: message.content,
+              });
+            }
 
-          // @NOTE: This takes care of the "Please ensure that multiturn requests alternate between user and model."
-          // error that occurs when we have multiple user messages in a row.
-          const shouldCombineMessages =
-            lastRole === role && !params.model?.includes('vision');
+            // @NOTE: This takes care of the "Please ensure that multiturn requests alternate between user and model."
+            // error that occurs when we have multiple user messages in a row.
+            const shouldCombineMessages =
+              lastRole === role && !params.model?.includes('vision');
 
-          if (shouldCombineMessages) {
-            messages[messages.length - 1].parts.push(...parts);
-          } else {
-            messages.push({ role, parts });
-          }
+            if (shouldCombineMessages) {
+              messages[messages.length - 1].parts.push(...parts);
+            } else {
+              messages.push({ role, parts });
+            }
 
-          lastRole = role;
-        });
+            lastRole = role;
+          })
+        );
         return messages;
       },
     },
