@@ -136,9 +136,7 @@ export const retryRequest = async (
       });
     }
     console.warn(
-      `Tried ${lastAttempt ?? 1} time(s) but failed. Error: ${JSON.stringify(
-        serializeError(error)
-      )}`
+      `Tried ${lastAttempt ?? 1} time(s) but failed. Error: ${JSON.stringify(serializeError(error))}`
     );
   }
   return [lastResponse as Response, lastAttempt];
