@@ -61,6 +61,7 @@ async function processLog(c: Context, start: number) {
     return;
   }
 
+  console.log('Request options array:', requestOptionsArray);
   if (requestOptionsArray[0].requestParams.stream) {
     requestOptionsArray[0].response = {
       message: 'The response was a stream.',
