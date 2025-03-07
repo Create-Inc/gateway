@@ -5,11 +5,5 @@
 			"source": "/(.*)",
 			"destination": "/api"
 		}
-	],
-	"functions": {
-		"api/index.js": {
-			"maxDuration": 800,
-			"memory": 3009
-		}
-	}
+	]
 }
