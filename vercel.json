@@ -1,9 +1,15 @@
 {
-  "buildCommand": "echo 'true'",
-  "rewrites": [
-    {
-      "source": "/(.*)",
-      "destination": "/api"
-    }
-  ]
+	"buildCommand": "echo 'true'",
+	"rewrites": [
+		{
+			"source": "/(.*)",
+			"destination": "/api"
+		}
+	],
+	"functions": {
+		"api/index.ts": {
+			"maxDuration": 800,
+			"memory": 3009
+		}
+	}
 }
