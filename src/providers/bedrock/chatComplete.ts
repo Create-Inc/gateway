@@ -426,6 +426,7 @@ export const BedrockChatCompleteStreamChunkTransform: (
   fallbackId: string,
   streamState: BedrockStreamState
 ) => string | string[] = (responseChunk, fallbackId, streamState) => {
+  console.log('responseChunk', responseChunk);
   const parsedChunk: BedrockChatCompleteStreamChunk = JSON.parse(responseChunk);
   if (parsedChunk.stopReason) {
     streamState.stopReason = parsedChunk.stopReason;
