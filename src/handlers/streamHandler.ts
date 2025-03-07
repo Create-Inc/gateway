@@ -33,6 +33,7 @@ function getPayloadFromAWSChunk(chunk: Uint8Array): string {
 
   const payloadLength = chunkLength - headersEnd - 4; // Subtracting 4 for the message crc
   const payload = chunk.slice(headersEnd, headersEnd + payloadLength);
+  console.log('decodedJson', decoder.decode(payload));
   const decodedJson = JSON.parse(decoder.decode(payload));
   return decodedJson.bytes
     ? Buffer.from(decodedJson.bytes, 'base64').toString()
