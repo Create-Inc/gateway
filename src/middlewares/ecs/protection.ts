@@ -17,7 +17,6 @@ process.on('SIGINT', () => {
 
 export const protection = () => {
   return async (c: Context, next: any) => {
-    console.log('[Middleware] Request start');
     await protectionManager.acquireProtection();
 
     await next();
@@ -36,7 +35,6 @@ export const protection = () => {
           const { done, value } = await reader.read();
           if (done) {
             // Cleanup work after the final chunk
-            console.log('[Middleware] Request End (stream finished)');
             await protectionManager.releaseProtection();
             controller.close();
             return;
@@ -53,7 +51,6 @@ export const protection = () => {
     } else {
       // If it's not a streaming response, there's nothing extra to wrap,
       // so you can do final logic right now
-      console.log('[Middleware] Request End (no stream)');
       await protectionManager.releaseProtection();
     }
   };
