@@ -6,7 +6,7 @@
       "name": "Apply Task Protection",
       "id": "protection",
       "type": "guardrail",
-      "supportedHooks": ["startHook", "endHook"]
+      "supportedHooks": ["beforeRequestHook", "afterRequestHook"]
     }
   ]
 }
