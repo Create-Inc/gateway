@@ -6,8 +6,7 @@
     "sydelabs",
     "pillar",
     "patronus",
-    "pangea",
-    "ecs"
+    "pangea"
   ],
   "credentials": {
     "portkey": {
