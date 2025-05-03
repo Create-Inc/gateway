@@ -1061,10 +1061,12 @@ export async function prefetchImageUrls(messages: Message[]): Promise<Message[]>
     const content: ContentType[] = msg.content_blocks ?? (Array.isArray(msg.content) ? msg.content : []);
     for (const item of content) {
       if (item.type === 'image_url' && item.image_url?.url) {
+        console.log('!! item.image_url.url', item.image_url.url.substring(0, 200));
         const data = await imageURLToBase64(item.image_url.url);
         if (data) {
           const { prefix, base64String } = data;
           item.image_url.url = `${prefix}${base64String}`;
+          console.log('!! item.image_url.url new', item.image_url.url.substring(0, 200));
         }
       }
     }
