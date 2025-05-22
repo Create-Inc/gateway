@@ -19,7 +19,7 @@ import { AnthropicStreamState } from './types';
 
 // TODO: this configuration does not enforce the maximum token limit for the input parameter. If you want to enforce this, you might need to add a custom validation function or a max property to the ParameterConfig interface, and then use it in the input configuration. However, this might be complex because the token count is not a simple length check, but depends on the specific tokenization method used by the model.
 
-interface AnthropicTool extends AnthropicPromptCache {
+interface AnthropicToolWithSchema extends AnthropicPromptCache {
   name: string;
   description: string;
   input_schema: {
@@ -34,6 +34,13 @@ interface AnthropicTool extends AnthropicPromptCache {
     required: string[];
   };
 }
+
+interface AnthropicToolWithType extends AnthropicPromptCache {
+  name: string;
+  type: string;
+}
+
+type AnthropicTool = AnthropicToolWithSchema | AnthropicToolWithType;
 
 interface AnthropicToolResultContentItem {
   type: 'tool_result';
@@ -300,6 +307,11 @@ export const AnthropicChatCompleteConfig: ProviderConfig = {
               ...(tool.cache_control && {
                 cache_control: { type: 'ephemeral' },
               }),
+            });
+          } else if (tool.name && tool.type) {
+            tools.push({
+              name: tool.name,
+              type: tool.type,
             });
           }
         });
