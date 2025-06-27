@@ -100,22 +100,7 @@ export const retryRequest = async (
           } else if (requestHandler) {
             response = await requestHandler();
           } else {
-            const body = options.body;
-            if (body && typeof body === 'string') {
-              try {
-                const parsedBody = JSON.parse(body);
-                const messages = parsedBody.messages;
-                if (Array.isArray(messages)) {
-                  for (const message of messages) {
-                    console.log('role', message.role);
-                    console.log('content', message.content?.slice(0, 300));
-                  }
-                }
-              } catch (parseError) {
-                // Silently ignore JSON parsing errors in debug code
-                console.log('Could not parse body for debugging:', parseError);
-              }
-            }
+            console.log('options', JSON.stringify(options, null, 2));
             
             response = await fetch(url, options);
           }
