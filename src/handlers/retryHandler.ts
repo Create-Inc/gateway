@@ -100,6 +100,7 @@ export const retryRequest = async (
           } else if (requestHandler) {
             response = await requestHandler();
           } else {
+            console.log('exactly what we are passing !!!!!!', url, options);
             response = await fetch(url, options);
           }
           if (statusCodesToRetry.includes(response.status)) {
