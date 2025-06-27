@@ -100,7 +100,12 @@ export const retryRequest = async (
           } else if (requestHandler) {
             response = await requestHandler();
           } else {
-            console.log('exactly what we are passing !!!!!!', url, options);
+            const body = JSON.parse(options.body as string);
+            const messages = body.messages;
+            for (const message of messages) {
+              console.log('role', message.role);
+              console.log('content', message.content.slice(0, 300));
+            }
             response = await fetch(url, options);
           }
           if (statusCodesToRetry.includes(response.status)) {
