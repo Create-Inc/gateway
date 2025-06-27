@@ -100,12 +100,15 @@ export const retryRequest = async (
           } else if (requestHandler) {
             response = await requestHandler();
           } else {
-            const body = JSON.parse(options.body as string);
-            const messages = body.messages;
-            for (const message of messages) {
-              console.log('role', message.role);
-              console.log('content', message.content.slice(0, 300));
+            const body = options.body;
+            if (body && typeof body === 'string') {
+              const messages = JSON.parse(body).messages;
+              for (const message of messages) {
+                console.log('role', message.role);
+                console.log('content', message.content.slice(0, 300));
+              }
             }
+            
             response = await fetch(url, options);
           }
           if (statusCodesToRetry.includes(response.status)) {
