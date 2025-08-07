@@ -313,10 +313,6 @@ export async function tryPost(
   const logObject = new LogObjectBuilder(logsService, requestContext);
   logObject.addHookSpanId(hookSpan.id);
 
-  if (providerOption.provider === BEDROCK && overrideParams.messages) {
-    params.messages = await prefetchImageUrls(params.messages);
-  }
-
   // before_request_hooks handler
   const {
     response: brhResponse,
@@ -832,7 +828,7 @@ export async function tryTargetsRecursively(
     throw new Error('Could not create response');
   }
 
-  return response!;
+  return response;
 }
 
 export function constructConfigFromRequestHeaders(

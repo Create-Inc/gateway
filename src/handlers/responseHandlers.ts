@@ -1,5 +1,5 @@
 import { Context } from 'hono';
-import { CONTENT_TYPES } from '../globals';
+import { BEDROCK, CONTENT_TYPES } from '../globals';
 import Providers from '../providers';
 import { OpenAIChatCompleteJSONToStreamResponseTransform } from '../providers/openai/chatComplete';
 import { OpenAICompleteJSONToStreamResponseTransform } from '../providers/openai/complete';
@@ -18,6 +18,7 @@ import { HookSpan } from '../middlewares/hooks';
 import { env } from 'hono/adapter';
 import { OpenAIModelResponseJSONToStreamGenerator } from '../providers/open-ai-base/createModelResponse';
 import { anthropicMessagesJsonToStreamGenerator } from '../providers/anthropic-base/utils/streamGenerator';
+import { prefetchImageUrls } from '../providers/bedrock/chatComplete';
 
 /**
  * Handles various types of responses based on the specified parameters
@@ -54,6 +55,10 @@ export async function responseHandler(
   const responseContentType = response.headers?.get('content-type');
   const isSuccessStatusCode = [200, 246].includes(response.status);
   const provider = providerOptions.provider;
+
+  if (provider === BEDROCK && gatewayRequest.messages) {
+    gatewayRequest.messages = await prefetchImageUrls(gatewayRequest.messages);
+  }
 
   const providerConfig = Providers[provider];
   let providerTransformers = Providers[provider]?.responseTransforms;
