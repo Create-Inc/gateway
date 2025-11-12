@@ -117,8 +117,13 @@ async function processLog(c: Context, start: number) {
       console.log(`Status: ${logData.status} | Duration: ${ms}ms`);
       console.log('-'.repeat(80));
 
-      if (requestOptionsArray[0]) {
-        const option = requestOptionsArray[0];
+      // Log all attempts (useful for retries, fallbacks, load balancing)
+      requestOptionsArray.forEach((option: any, index: number) => {
+        if (requestOptionsArray.length > 1) {
+          console.log(
+            `\n--- Attempt ${index + 1} of ${requestOptionsArray.length} ---`
+          );
+        }
 
         // Log provider and model info
         if (option.providerOptions) {
@@ -140,7 +145,7 @@ async function processLog(c: Context, start: number) {
           console.log('\nResponse:');
           console.log(JSON.stringify(option.response, null, 2));
         }
-      }
+      });
 
       console.log('='.repeat(80) + '\n');
     }
