@@ -4,6 +4,13 @@ import { getRuntimeKey } from 'hono/adapter';
 let logId = 0;
 const MAX_RESPONSE_LENGTH = 100000;
 
+// Log level control via environment variable
+// Set LOG_LEVEL=verbose for detailed console logs
+// Set LOG_LEVEL=minimal for basic logs only
+// Set LOG_LEVEL=silent to disable console logs
+// Default to verbose logging if not set or set to an invalid value
+const LOG_LEVEL = process.env.LOG_LEVEL || 'verbose';
+
 // Map to store all connected log clients
 const logClients: Map<string | number, any> = new Map();
 
@@ -72,16 +79,75 @@ async function processLog(c: Context, start: number) {
     console.error('Error processing log:', error);
   }
 
-  await broadcastLog(
-    JSON.stringify({
-      time: new Date().toLocaleString(),
-      method: c.req.method,
-      endpoint: c.req.url.split(':8787')[1],
-      status: c.res.status,
-      duration: ms,
-      requestOptions: requestOptionsArray,
-    })
-  );
+  const now = new Date();
+  const timestamp = now.toLocaleString('en-US', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    timeZoneName: 'short',
+  });
+
+  // Extract the endpoint path from the URL
+  const url = new URL(c.req.url);
+  const endpoint = url.pathname + url.search;
+
+  const logData = {
+    time: timestamp,
+    method: c.req.method,
+    endpoint: endpoint,
+    status: c.res.status,
+    duration: ms,
+    requestOptions: requestOptionsArray,
+  };
+
+  // Log to console for STDOUT visibility based on LOG_LEVEL
+  if (LOG_LEVEL !== 'silent') {
+    if (LOG_LEVEL === 'minimal') {
+      // Minimal logging: just method, endpoint, status, duration
+      console.log(
+        `[${logData.time}] ${logData.method} ${logData.endpoint} - ${logData.status} (${ms}ms)`
+      );
+    } else {
+      // Verbose logging: full details (default)
+      console.log('\n' + '='.repeat(80));
+      console.log(`[${logData.time}] ${logData.method} ${logData.endpoint}`);
+      console.log(`Status: ${logData.status} | Duration: ${ms}ms`);
+      console.log('-'.repeat(80));
+
+      if (requestOptionsArray[0]) {
+        const option = requestOptionsArray[0];
+
+        // Log provider and model info
+        if (option.providerOptions) {
+          console.log('Provider:', option.providerOptions?.provider || 'N/A');
+          console.log(
+            'Request URL:',
+            option.providerOptions?.requestURL || 'N/A'
+          );
+        }
+
+        // Log request parameters
+        if (option.requestParams) {
+          console.log('\nRequest Parameters:');
+          console.log(JSON.stringify(option.requestParams, null, 2));
+        }
+
+        // Log response
+        if (option.response) {
+          console.log('\nResponse:');
+          console.log(JSON.stringify(option.response, null, 2));
+        }
+      }
+
+      console.log('='.repeat(80) + '\n');
+    }
+  }
+
+  // Broadcast to SSE clients (for web UI)
+  await broadcastLog(JSON.stringify(logData));
 }
 
 export const logger = () => {
