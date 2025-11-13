@@ -199,7 +199,7 @@ async function processLog(c: Context, start: number) {
     }
   }
 
-  // Broadcast to SSE clients (for web UI)
+  // Broadcast to SSE clients
   await broadcastLog(JSON.stringify(logData));
 }
 
