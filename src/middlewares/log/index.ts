@@ -117,7 +117,31 @@ async function processLog(c: Context, start: number) {
       console.log(`Status: ${logData.status} | Duration: ${ms}ms`);
       console.log('-'.repeat(80));
 
+      // Log incoming client request (Client -> Gateway)
+      console.log('\nINCOMING REQUEST (Client -> Gateway):');
+      console.log('\nClient Headers:');
+      const headers: Record<string, string> = {};
+      c.req.raw.headers.forEach((value, key) => {
+        headers[key] = value;
+      });
+      console.log(JSON.stringify(headers, null, 2));
+
+      // Log original request body if available
+      if (requestOptionsArray[0]?.finalUntransformedRequest?.body) {
+        console.log('\nClient Request Body:');
+        console.log(
+          JSON.stringify(
+            requestOptionsArray[0].finalUntransformedRequest.body,
+            null,
+            2
+          )
+        );
+      }
+
+      console.log('\n' + '-'.repeat(80));
+
       // Log all attempts (useful for retries, fallbacks, load balancing)
+      console.log('\nOUTGOING REQUESTS (Gateway -> Provider):');
       requestOptionsArray.forEach((option: any, index: number) => {
         if (requestOptionsArray.length > 1) {
           console.log(
@@ -140,14 +164,25 @@ async function processLog(c: Context, start: number) {
           console.log(JSON.stringify(option.requestParams, null, 2));
         }
 
-        // Log response
+        // Log response from provider
         if (option.response) {
-          console.log('\nResponse:');
+          console.log('\nProvider Response:');
           console.log(JSON.stringify(option.response, null, 2));
         }
       });
 
-      console.log('='.repeat(80) + '\n');
+      // Log final response back to client (Gateway -> Client)
+      console.log('\n' + '-'.repeat(80));
+      console.log('\nOUTGOING RESPONSE (Gateway -> Client):');
+      console.log(`\nStatus: ${c.res.status}`);
+      console.log('\nResponse Headers:');
+      const responseHeaders: Record<string, string> = {};
+      c.res.headers.forEach((value, key) => {
+        responseHeaders[key] = value;
+      });
+      console.log(JSON.stringify(responseHeaders, null, 2));
+
+      console.log('\n' + '='.repeat(80) + '\n');
     }
   }
 
