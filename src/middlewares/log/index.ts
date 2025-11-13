@@ -63,17 +63,19 @@ async function processLog(c: Context, start: number) {
     return;
   }
 
+  // Capture the final response body sent to the client
+  let finalClientResponse = null;
   try {
-    const response = requestOptionsArray[0].requestParams.stream
+    finalClientResponse = requestOptionsArray[0].requestParams.stream
       ? { message: 'The response was a stream.' }
       : await c.res.clone().json();
 
-    const responseString = JSON.stringify(response);
+    const responseString = JSON.stringify(finalClientResponse);
     if (responseString.length > MAX_RESPONSE_LENGTH) {
       requestOptionsArray[0].response =
         responseString.substring(0, MAX_RESPONSE_LENGTH) + '...';
     } else {
-      requestOptionsArray[0].response = response;
+      requestOptionsArray[0].response = finalClientResponse;
     }
   } catch (error) {
     console.error('Error processing log:', error);
@@ -181,6 +183,12 @@ async function processLog(c: Context, start: number) {
         responseHeaders[key] = value;
       });
       console.log(JSON.stringify(responseHeaders, null, 2));
+
+      // Log the actual response body sent to client
+      if (finalClientResponse) {
+        console.log('\nResponse Body:');
+        console.log(JSON.stringify(finalClientResponse, null, 2));
+      }
 
       console.log('\n' + '='.repeat(80) + '\n');
     }
