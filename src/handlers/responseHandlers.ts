@@ -1,5 +1,5 @@
 import { Context } from 'hono';
-import { CONTENT_TYPES } from '../globals';
+import { BEDROCK, CONTENT_TYPES } from '../globals';
 import Providers from '../providers';
 import { OpenAIChatCompleteJSONToStreamResponseTransform } from '../providers/openai/chatComplete';
 import { OpenAICompleteJSONToStreamResponseTransform } from '../providers/openai/complete';

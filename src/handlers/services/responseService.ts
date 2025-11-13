@@ -120,13 +120,9 @@ export class ResponseService {
       response.headers.append(HEADER_KEYS.PROVIDER, this.context.provider);
     }
 
-    // Remove headers directly
-    // const encoding = response.headers.get('content-encoding');
-    // if (encoding?.includes('br') || getRuntimeKey() == 'node') {
-    //   response.headers.delete('content-encoding');
-    // }
+    response.headers.delete('content-encoding');
     response.headers.delete('content-length');
-    // response.headers.delete('transfer-encoding');
+    response.headers.delete('transfer-encoding');
 
     return response;
   }

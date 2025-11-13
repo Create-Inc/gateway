@@ -1,3 +1,4 @@
+import * as Sentry from '@sentry/node';
 import { Context } from 'hono';
 import {
   AZURE_OPEN_AI,
@@ -27,6 +28,7 @@ import { ConditionalRouter } from '../services/conditionalRouter';
 import { RouterError } from '../errors/RouterError';
 import { GatewayError } from '../errors/GatewayError';
 import { HookType } from '../middlewares/hooks/types';
+import { prefetchImageUrls } from '../providers/bedrock/chatComplete';
 
 // Services
 import { CacheResponseObject, CacheService } from './services/cacheService';
@@ -289,6 +291,14 @@ export async function tryPost(
   currentIndex: number | string,
   method: string = 'POST'
 ): Promise<Response> {
+  if (
+    providerOption.provider === BEDROCK &&
+    'messages' in requestBody &&
+    requestBody.messages
+  ) {
+    requestBody.messages = await prefetchImageUrls(requestBody.messages);
+  }
+
   const requestContext = new RequestContext(
     c,
     providerOption,
@@ -648,7 +658,15 @@ export async function tryTargetsRecursively(
     }
   }
 
-  let response;
+  let response: Response | null = null;
+  Sentry.setTag('provider', currentTarget.provider);
+  Sentry.setTag('strategyMode', strategyMode);
+  Sentry.setTag('fn', fn);
+  Sentry.setContext('overrideParams', currentTarget.overrideParams);
+  Sentry.setContext('retry', currentTarget.retry);
+  if ('model' in request) {
+    Sentry.setContext('request', { ...request });
+  }
 
   switch (strategyMode) {
     case StrategyModes.FALLBACK:
@@ -789,15 +807,10 @@ export async function tryTargetsRecursively(
           );
         }
       } catch (error: any) {
+        Sentry.captureException(error);
         // tryPost always returns a Response.
         // TypeError will check for all unhandled exceptions.
         // GatewayError will check for all handled exceptions which cannot allow the request to proceed.
-        console.error(
-          'tryTargetsRecursively error: ',
-          error.message,
-          error.cause,
-          error.stack
-        );
         const errorMessage =
           error instanceof GatewayError
             ? error.message
@@ -805,7 +818,7 @@ export async function tryTargetsRecursively(
         response = new Response(
           JSON.stringify({
             status: 'failure',
-            message: errorMessage,
+            error: errorMessage,
           }),
           {
             status: 500,
@@ -819,8 +832,11 @@ export async function tryTargetsRecursively(
       }
       break;
   }
+  if (!response) {
+    throw new Error('Could not create response');
+  }
 
-  return response!;
+  return response;
 }
 
 export function constructConfigFromRequestHeaders(

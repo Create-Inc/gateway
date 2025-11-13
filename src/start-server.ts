@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import './instrument';
 import { serve } from '@hono/node-server';
 
 import app from './index';
@@ -146,6 +147,16 @@ app.get(
 const server = serve({
   fetch: app.fetch,
   port: port,
+  overrideGlobalObjects: false,
+  serverOptions: {
+    // Ensure all inactive connections are terminated by the ALB, by setting this
+    // a few seconds higher than the ALB idle timeout.
+    //
+    // Set to 10 minutes (300000ms) + 5 seconds (5000ms) to ensure that the ALB
+    //
+    // @see https://adamcrowder.net/posts/node-express-api-and-aws-alb-502/
+    keepAliveTimeout: 1000 * 60 * 10 + 5000,
+  },
 });
 
 const url = `http://localhost:${port}`;

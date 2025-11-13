@@ -1,3 +1,4 @@
+import * as Sentry from '@sentry/node';
 import {
   AZURE_OPEN_AI,
   BEDROCK,
@@ -13,6 +14,7 @@ import { OpenAIChatCompleteResponse } from '../providers/openai/chatComplete';
 import { OpenAICompleteResponse } from '../providers/openai/complete';
 import { Params } from '../types/requestBody';
 import { getStreamModeSplitPattern, type SplitPatternType } from '../utils';
+import { protectionManager } from '../utils/ecs/protection';
 
 function readUInt32BE(buffer: Uint8Array, offset: number) {
   return (
@@ -318,14 +320,25 @@ export function handleStreamingMode(
           strictOpenAiCompliance,
           gatewayRequest
         )) {
+          await writer.ready;
           await writer.write(encoder.encode(chunk));
         }
       } catch (error) {
         console.error(error);
       } finally {
-        writer.close();
+        await writer.close();
       }
-    })();
+    })()
+      .catch((error) => {
+        Sentry.captureException(error, {
+          extra: {
+            requestURL,
+          },
+        });
+      })
+      .finally(() => {
+        protectionManager.releaseProtection();
+      });
   } else {
     (async () => {
       try {
@@ -338,14 +351,25 @@ export function handleStreamingMode(
           strictOpenAiCompliance,
           gatewayRequest
         )) {
+          await writer.ready;
           await writer.write(encoder.encode(chunk));
         }
       } catch (error) {
         console.error(error);
       } finally {
-        writer.close();
+        await writer.close();
       }
-    })();
+    })()
+      .catch((error) => {
+        Sentry.captureException(error, {
+          extra: {
+            requestURL,
+          },
+        });
+      })
+      .finally(() => {
+        protectionManager.releaseProtection();
+      });
   }
 
   // Convert GEMINI/COHERE json stream to text/event-stream for non-proxy calls

@@ -43,6 +43,8 @@ import {
   transformInferenceConfig,
 } from './utils';
 
+import urljoin from 'url-join';
+
 export interface BedrockChatCompletionsParams extends Params {
   additionalModelRequestFields?: Record<string, any>;
   additional_model_request_fields?: Record<string, any>;
@@ -250,6 +252,7 @@ const getMessageContent = (message: Message) => {
       },
     });
   });
+
   return out;
 };
 
@@ -306,6 +309,11 @@ export const BedrockConverseChatCompleteConfig: ProviderConfig = {
           },
           []
         );
+        if (params.response_format?.type === 'json_schema') {
+          systemMessages.push({
+            text: `Here is the JSON Schema that defines the structure for this conversation. You must follow this schema strictly and only return the JSON object:\n\n${JSON.stringify(params.response_format.json_schema)}`,
+          });
+        }
         if (!systemMessages.length) return;
         return systemMessages;
       },
@@ -1128,3 +1136,48 @@ export const BedrockAI21ChatCompleteResponseTransform: (
 
   return generateInvalidProviderResponseError(response, BEDROCK);
 };
+
+const imageURLToBase64 = async (url: string) => {
+  const urlWithTransformation = url.startsWith('https://ucarecdn.com/')
+    ? urljoin(url, '-/preview/')
+    : url;
+
+  try {
+    const response = await fetch(urlWithTransformation, {
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to fetch image. Status: ${response.status}`);
+    }
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    const contentType = response.headers.get('content-type')?.split(';')[0];
+    const base64String = buffer.toString('base64');
+    const prefix = `data:${contentType};base64,`;
+    return {
+      prefix,
+      base64String,
+    };
+  } catch (error) {
+    console.error('Error trying to encode image url', error);
+  }
+};
+
+export async function prefetchImageUrls(
+  messages: Message[]
+): Promise<Message[]> {
+  for (const msg of messages) {
+    const content: ContentType[] =
+      msg.content_blocks ?? (Array.isArray(msg.content) ? msg.content : []);
+    for (const item of content) {
+      if (item.type === 'image_url' && item.image_url?.url) {
+        const data = await imageURLToBase64(item.image_url.url);
+        if (data) {
+          const { prefix, base64String } = data;
+          item.image_url.url = `${prefix}${base64String}`;
+        }
+      }
+    }
+  }
+  return messages;
+}

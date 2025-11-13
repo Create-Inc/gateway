@@ -69,8 +69,8 @@ async function processLog(c: Context, start: number) {
   const lastAttemptIndex = requestOptionsArray.length - 1;
   let finalClientResponse = null;
   try {
-    finalClientResponse = requestOptionsArray[lastAttemptIndex].requestParams
-      .stream
+    finalClientResponse = requestOptionsArray[lastAttemptIndex]
+      .finalUntransformedRequest.body.stream
       ? { message: 'The response was a stream.' }
       : await c.res.clone().json();
 

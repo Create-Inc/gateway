@@ -26,7 +26,36 @@ import {
 import {
   generateErrorResponse,
   generateInvalidProviderResponseError,
+  getFakeId,
 } from '../utils';
+
+const joinSystemMessages = (messages: Message[]) =>
+  messages
+    ?.filter((message) => message.role === 'system')
+    .reduce((parts, message) => {
+      if (typeof message.content === 'string') {
+        parts.push({
+          type: 'text',
+          text: message.content,
+        });
+      }
+      if (message.content && typeof message.content === 'object') {
+        message.content.forEach((c: ContentType) => {
+          if (c.type === 'text' && c.text) {
+            parts.push({
+              type: 'text',
+              text: c.text,
+            });
+          }
+        });
+      }
+      return parts;
+    }, [] as ContentType[])
+    .map((content) => {
+      return content.text;
+    })
+    .filter((text): text is string => !!text?.length)
+    .join('\n');
 
 const transformGenerationConfig = (params: Params) => {
   const generationConfig: Record<string, any> = {};
@@ -95,7 +124,12 @@ export const SYSTEM_INSTRUCTION_DISABLED_MODELS = [
   'gemini-pro-vision',
 ];
 
-export type GoogleMessageRole = 'user' | 'model' | 'system' | 'function';
+export type GoogleMessageRole =
+  | 'user'
+  | 'model'
+  | 'system'
+  | 'function'
+  | 'developer';
 
 interface GoogleFunctionCallMessagePart {
   functionCall: GoogleGenerateFunctionCall;
@@ -178,25 +212,46 @@ export const GoogleChatCompleteConfig: ProviderConfig = {
       transform: (params: Params) => {
         let lastRole: GoogleMessageRole | undefined;
         const messages: GoogleMessage[] = [];
+        const systemMessage = SYSTEM_INSTRUCTION_DISABLED_MODELS.includes(
+          params.model as string
+        )
+          ? joinSystemMessages(params.messages ?? [])
+          : null;
 
-        params.messages?.forEach((message: Message) => {
-          // From gemini-1.5 onwards, systemInstruction is supported
-          // Skipping system message and sending it in systemInstruction for gemini 1.5 models
-          if (
-            SYSTEM_MESSAGE_ROLES.includes(message.role) &&
-            !SYSTEM_INSTRUCTION_DISABLED_MODELS.includes(params.model as string)
-          )
-            return;
+        const fixedMessages: Message[] = [
+          ...(systemMessage
+            ? [
+                {
+                  // From gemini-1.5 onwards, systemInstruction is supported
+                  role: 'assistant' as const,
+                  content: systemMessage,
+                },
+              ]
+            : []),
+          ...(params.messages?.filter((message) => {
+            return message.role === 'user' || message.role === 'assistant';
+          }) ?? []),
+        ];
 
+        fixedMessages.forEach((message: Message) => {
           const role = transformOpenAIRoleToGoogleRole(message.role);
           let parts = [];
 
           if (message.role === 'assistant' && message.tool_calls) {
             message.tool_calls.forEach((tool_call: ToolCall) => {
+              let args;
+              try {
+                args = JSON.parse(tool_call.function.arguments);
+                if (typeof args !== 'object' || Array.isArray(args)) {
+                  args = {};
+                }
+              } catch (error) {
+                args = {};
+              }
               parts.push({
                 functionCall: {
                   name: tool_call.function.name,
-                  args: JSON.parse(tool_call.function.arguments),
+                  args,
                 },
               });
             });
@@ -287,40 +342,15 @@ export const GoogleChatCompleteConfig: ProviderConfig = {
         if (SYSTEM_INSTRUCTION_DISABLED_MODELS.includes(params.model as string))
           return;
 
-        const firstMessage = params.messages?.[0] || null;
-
-        if (!firstMessage) return;
-
-        if (
-          SYSTEM_MESSAGE_ROLES.includes(firstMessage.role) &&
-          typeof firstMessage.content === 'string'
-        ) {
-          return {
-            parts: [
-              {
-                text: firstMessage.content,
-              },
-            ],
-            role: 'system',
-          };
-        }
-
-        if (
-          SYSTEM_MESSAGE_ROLES.includes(firstMessage.role) &&
-          typeof firstMessage.content === 'object' &&
-          firstMessage.content?.[0]?.text
-        ) {
-          return {
-            parts: [
-              {
-                text: firstMessage.content?.[0].text,
-              },
-            ],
-            role: 'system',
-          };
-        }
-
-        return;
+        const systemMessage = joinSystemMessages(params.messages ?? []);
+        return {
+          parts: [
+            {
+              text: systemMessage,
+            },
+          ],
+          role: 'system',
+        };
       },
     },
   ],
@@ -531,7 +561,7 @@ export const GoogleChatCompleteResponseTransform: (
 
   if ('candidates' in response) {
     return {
-      id: 'portkey-' + crypto.randomUUID(),
+      id: getFakeId(),
       object: 'chat.completion',
       created: Math.floor(Date.now() / 1000),
       model: response.modelVersion,
@@ -545,7 +575,7 @@ export const GoogleChatCompleteResponseTransform: (
           for (const part of generation.content?.parts ?? []) {
             if (part.functionCall) {
               toolCalls.push({
-                id: 'portkey-' + crypto.randomUUID(),
+                id: getFakeId(),
                 type: 'function',
                 function: {
                   name: part.functionCall.name,
@@ -686,7 +716,7 @@ export const GoogleChatCompleteStreamChunkTransform: (
                 if (part.functionCall) {
                   return {
                     index: idx,
-                    id: 'portkey-' + crypto.randomUUID(),
+                    id: getFakeId(),
                     type: 'function',
                     function: {
                       name: part.functionCall.name,
