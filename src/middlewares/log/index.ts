@@ -64,18 +64,22 @@ async function processLog(c: Context, start: number) {
   }
 
   // Capture the final response body sent to the client
+  // Note: requestOptionsArray is ordered chronologically (first attempt at [0], last at [-1])
+  // The last element contains the final successful (or failed) response
+  const lastAttemptIndex = requestOptionsArray.length - 1;
   let finalClientResponse = null;
   try {
-    finalClientResponse = requestOptionsArray[0].requestParams.stream
+    finalClientResponse = requestOptionsArray[lastAttemptIndex].requestParams
+      .stream
       ? { message: 'The response was a stream.' }
       : await c.res.clone().json();
 
     const responseString = JSON.stringify(finalClientResponse);
     if (responseString.length > MAX_RESPONSE_LENGTH) {
-      requestOptionsArray[0].response =
+      requestOptionsArray[lastAttemptIndex].response =
         responseString.substring(0, MAX_RESPONSE_LENGTH) + '...';
     } else {
-      requestOptionsArray[0].response = finalClientResponse;
+      requestOptionsArray[lastAttemptIndex].response = finalClientResponse;
     }
   } catch (error) {
     console.error('Error processing log:', error);
@@ -129,6 +133,7 @@ async function processLog(c: Context, start: number) {
       console.log(JSON.stringify(headers, null, 2));
 
       // Log original request body if available
+      // Note: Client request body is the same across all attempts, so we can use any element
       if (requestOptionsArray[0]?.finalUntransformedRequest?.body) {
         console.log('\nClient Request Body:');
         console.log(
