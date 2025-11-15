@@ -13,6 +13,7 @@ export default {
     typescript({
       exclude: ['**/*.test.ts', 'start-test.js', 'cookbook', 'docs', 'tests'],
     }),
+    terser(),
     json(),
     copy({
       targets: [{ src: 'src/public/*', dest: 'build/public' }],
