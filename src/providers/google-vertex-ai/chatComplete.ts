@@ -76,7 +76,6 @@ export const VertexGoogleChatCompleteConfig: ProviderConfig = {
       param: 'contents',
       default: '',
       transform: (params: Params) => {
-        console.log('params:', JSON.stringify(params, null, 2));
         let lastRole: GoogleMessageRole | undefined;
         const messages: GoogleMessage[] = [];
 
