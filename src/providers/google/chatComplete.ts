@@ -29,6 +29,8 @@ import {
   getFakeId,
 } from '../utils';
 
+type ToolCallWithSignature = ToolCall & { thoughtSignature: string | undefined };
+
 const joinSystemMessages = (messages: Message[]) =>
   messages
     ?.filter((message) => message.role === 'system')
@@ -238,7 +240,7 @@ export const GoogleChatCompleteConfig: ProviderConfig = {
           let parts = [];
 
           if (message.role === 'assistant' && message.tool_calls) {
-            message.tool_calls.forEach((tool_call: ToolCall) => {
+            message.tool_calls.forEach((tool_call: ToolCallWithSignature) => {
               let args;
               try {
                 args = JSON.parse(tool_call.function.arguments);
@@ -253,6 +255,7 @@ export const GoogleChatCompleteConfig: ProviderConfig = {
                   name: tool_call.function.name,
                   args,
                 },
+                thoughtSignature: tool_call.thoughtSignature,
               });
             });
           } else if (
@@ -476,6 +479,7 @@ interface GoogleResponseCandidate {
       text?: string;
       thought?: string; // for models like gemini-2.0-flash-thinking-exp refer: https://ai.google.dev/gemini-api/docs/thinking-mode#streaming_model_thinking
       functionCall?: GoogleGenerateFunctionCall;
+      thoughtSignature?: string;
     }[];
   };
   logprobsResult?: {
@@ -569,7 +573,7 @@ export const GoogleChatCompleteResponseTransform: (
       choices:
         response.candidates?.map((generation, idx) => {
           // transform tool calls and content by iterating over the content parts
-          const toolCalls: ToolCall[] = [];
+          const toolCalls: ToolCallWithSignature[] = [];
           let content: string | undefined;
           const contentBlocks = [];
           for (const part of generation.content?.parts ?? []) {
@@ -581,6 +585,7 @@ export const GoogleChatCompleteResponseTransform: (
                   name: part.functionCall.name,
                   arguments: JSON.stringify(part.functionCall.args),
                 },
+                thoughtSignature: part.thoughtSignature,
               });
             } else if (part.text) {
               if (part.thought) {
@@ -722,6 +727,7 @@ export const GoogleChatCompleteStreamChunkTransform: (
                       name: part.functionCall.name,
                       arguments: JSON.stringify(part.functionCall.args),
                     },
+                    thoughtSignature: part.thoughtSignature,
                   };
                 }
               }),
