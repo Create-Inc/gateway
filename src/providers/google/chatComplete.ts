@@ -29,7 +29,9 @@ import {
   getFakeId,
 } from '../utils';
 
-type ToolCallWithSignature = ToolCall & { thoughtSignature: string | undefined };
+type ToolCallWithSignature = ToolCall & {
+  thoughtSignature: string | undefined;
+};
 
 const joinSystemMessages = (messages: Message[]) =>
   messages
