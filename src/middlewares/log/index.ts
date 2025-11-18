@@ -117,73 +117,37 @@ async function processLog(c: Context, start: number) {
         `[${logData.time}] ${logData.method} ${logData.endpoint} - ${logData.status} (${ms}ms)`
       );
     } else {
-      // Verbose logging: full details (default)
-      console.log('\n' + '='.repeat(80));
-      console.log(`[${logData.time}] ${logData.method} ${logData.endpoint}`);
-      console.log(`Status: ${logData.status} | Duration: ${ms}ms`);
-      console.log('-'.repeat(80));
+      // Verbose logging: structured JSON for CloudWatch
+      const structuredLog = {
+        timestamp: logData.time,
+        timestampNanos: now.getTime() * 1_000_000,
+        request: {
+          method: logData.method,
+          endpoint: logData.endpoint,
+          // Client request body is the same across all attempts, so we can use any element
+          clientRequestBody:
+            requestOptionsArray[0]?.finalUntransformedRequest?.body || null,
+        },
+        response: {
+          status: logData.status,
+          durationMs: ms,
+          body: finalClientResponse || null,
+        },
+        // All provider attempts for this single client request (retries, fallbacks, load balancing)
+        // Ordered chronologically: [0] is first attempt, last element is final attempt
+        providerAttempts: requestOptionsArray.map(
+          (option: any, index: number) => ({
+            attemptNumber: index + 1,
+            totalAttempts: requestOptionsArray.length,
+            provider: option.providerOptions?.provider || 'N/A',
+            requestURL: option.providerOptions?.requestURL || 'N/A',
+            requestParams: option.requestParams || null,
+            providerResponse: option.response || null,
+          })
+        ),
+      };
 
-      // Log incoming client request (Client -> Gateway)
-      console.log('\nINCOMING REQUEST (Client -> Gateway):');
-
-      // Log original request body if available
-      // Note: Client request body is the same across all attempts, so we can use any element
-      if (requestOptionsArray[0]?.finalUntransformedRequest?.body) {
-        console.log('\nClient Request Body:');
-        console.log(
-          JSON.stringify(
-            requestOptionsArray[0].finalUntransformedRequest.body,
-            null,
-            2
-          )
-        );
-      }
-
-      console.log('\n' + '-'.repeat(80));
-
-      // Log all attempts (useful for retries, fallbacks, load balancing)
-      console.log('\nOUTGOING REQUESTS (Gateway -> Provider):');
-      requestOptionsArray.forEach((option: any, index: number) => {
-        if (requestOptionsArray.length > 1) {
-          console.log(
-            `\n--- Attempt ${index + 1} of ${requestOptionsArray.length} ---`
-          );
-        }
-
-        // Log provider and model info
-        if (option.providerOptions) {
-          console.log('Provider:', option.providerOptions?.provider || 'N/A');
-          console.log(
-            'Request URL:',
-            option.providerOptions?.requestURL || 'N/A'
-          );
-        }
-
-        // Log request parameters
-        if (option.requestParams) {
-          console.log('\nRequest Parameters:');
-          console.log(JSON.stringify(option.requestParams, null, 2));
-        }
-
-        // Log response from provider
-        if (option.response) {
-          console.log('\nProvider Response:');
-          console.log(JSON.stringify(option.response, null, 2));
-        }
-      });
-
-      // Log final response back to client (Gateway -> Client)
-      console.log('\n' + '-'.repeat(80));
-      console.log('\nOUTGOING RESPONSE (Gateway -> Client):');
-      console.log(`\nStatus: ${c.res.status}`);
-
-      // Log the actual response body sent to client
-      if (finalClientResponse) {
-        console.log('\nResponse Body:');
-        console.log(JSON.stringify(finalClientResponse, null, 2));
-      }
-
-      console.log('\n' + '='.repeat(80) + '\n');
+      console.log(JSON.stringify(structuredLog));
     }
   }
 
