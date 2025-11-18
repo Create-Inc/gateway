@@ -233,7 +233,11 @@ export const GoogleChatCompleteConfig: ProviderConfig = {
               ]
             : []),
           ...(params.messages?.filter((message) => {
-            return message.role === 'user' || message.role === 'assistant';
+            return (
+              message.role === 'user' ||
+              message.role === 'assistant' ||
+              message.role === 'tool'
+            );
           }) ?? []),
         ];
 
