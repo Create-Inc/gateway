@@ -9,11 +9,14 @@ import {
   SYSTEM_MESSAGE_ROLES,
   MESSAGE_ROLES,
 } from '../../types/requestBody';
-import { buildGoogleSearchRetrievalTool } from '../google-vertex-ai/chatComplete';
+import { VERTEX_MODALITY } from '../google-vertex-ai/types';
 import {
-  derefer,
   getMimeType,
+  googleTools,
   recursivelyDeleteUnsupportedParameters,
+  transformGeminiToolParameters,
+  transformGoogleTools,
+  transformInputAudioPart,
   transformVertexLogprobs,
 } from '../google-vertex-ai/utils';
 import {
@@ -27,7 +30,9 @@ import {
   generateErrorResponse,
   generateInvalidProviderResponseError,
   getFakeId,
+  transformFinishReason,
 } from '../utils';
+import { GOOGLE_GENERATE_CONTENT_FINISH_REASON } from './types';
 
 type ToolCallWithSignature = ToolCall & {
   thoughtSignature: string | undefined;
@@ -63,19 +68,22 @@ const joinSystemMessages = (messages: Message[]) =>
 
 const transformGenerationConfig = (params: Params) => {
   const generationConfig: Record<string, any> = {};
-  if (params['temperature']) {
+  if (params['temperature'] != null && params['temperature'] != undefined) {
     generationConfig['temperature'] = params['temperature'];
   }
-  if (params['top_p']) {
+  if (params['top_p'] != null && params['top_p'] != undefined) {
     generationConfig['topP'] = params['top_p'];
   }
-  if (params['top_k']) {
+  if (params['top_k'] != null && params['top_k'] != undefined) {
     generationConfig['topK'] = params['top_k'];
   }
-  if (params['max_tokens']) {
+  if (params['max_tokens'] != null && params['max_tokens'] != undefined) {
     generationConfig['maxOutputTokens'] = params['max_tokens'];
   }
-  if (params['max_completion_tokens']) {
+  if (
+    params['max_completion_tokens'] != null &&
+    params['max_completion_tokens'] != undefined
+  ) {
     generationConfig['maxOutputTokens'] = params['max_completion_tokens'];
   }
   if (params['stop']) {
@@ -87,25 +95,19 @@ const transformGenerationConfig = (params: Params) => {
   if (params['logprobs']) {
     generationConfig['responseLogprobs'] = params['logprobs'];
   }
-  if (params['top_logprobs']) {
+  if (params['top_logprobs'] != null && params['top_logprobs'] != undefined) {
     generationConfig['logprobs'] = params['top_logprobs']; // range 1-5, openai supports 1-20
   }
-  if (params['seed']) {
+  if (params['seed'] != null && params['seed'] != undefined) {
     generationConfig['seed'] = params['seed'];
   }
   if (params?.response_format?.type === 'json_schema') {
     generationConfig['responseMimeType'] = 'application/json';
-    recursivelyDeleteUnsupportedParameters(
-      params?.response_format?.json_schema?.schema
-    );
     let schema =
       params?.response_format?.json_schema?.schema ??
       params?.response_format?.json_schema;
-    if (Object.keys(schema).includes('$defs')) {
-      schema = derefer(schema);
-      delete schema['$defs'];
-    }
-    generationConfig['responseSchema'] = schema;
+    recursivelyDeleteUnsupportedParameters(schema);
+    generationConfig['responseSchema'] = transformGeminiToolParameters(schema);
   }
   if (params?.thinking) {
     const thinkingConfig: Record<string, any> = {};
@@ -114,6 +116,11 @@ const transformGenerationConfig = (params: Params) => {
       type === 'enabled' && budget_tokens ? true : false;
     thinkingConfig['thinking_budget'] = params.thinking.budget_tokens;
     generationConfig['thinking_config'] = thinkingConfig;
+  }
+  if (params.modalities) {
+    generationConfig['responseModalities'] = params.modalities.map((modality) =>
+      modality.toUpperCase()
+    );
   }
   return generationConfig;
 };
@@ -144,16 +151,31 @@ interface GoogleFunctionResponseMessagePart {
     name: string;
     response: {
       name?: string;
-      content: string;
+      output: string | ContentType[];
     };
   };
 }
 
-type GoogleMessagePart =
+export type GoogleMessagePart =
   | GoogleFunctionCallMessagePart
   | GoogleFunctionResponseMessagePart
+  | GoogleInlineDataMessagePart
+  | GoogleFileDataMessagePart
   | { text: string };
 
+export interface GoogleInlineDataMessagePart {
+  inlineData: {
+    mimeType?: string;
+    data: string;
+  };
+}
+
+export interface GoogleFileDataMessagePart {
+  fileData: {
+    mimeType?: string;
+    fileUri: string;
+  };
+}
 export interface GoogleMessage {
   role: GoogleMessageRole;
   parts: GoogleMessagePart[];
@@ -264,15 +286,12 @@ export const GoogleChatCompleteConfig: ProviderConfig = {
                 thoughtSignature: tool_call.thoughtSignature,
               });
             });
-          } else if (
-            message.role === 'tool' &&
-            typeof message.content === 'string'
-          ) {
+          } else if (message.role === 'tool') {
             parts.push({
               functionResponse: {
                 name: message.name ?? 'gateway-tool-filler-name',
                 response: {
-                  content: message.content,
+                  output: message.content ?? '',
                 },
               },
             });
@@ -282,8 +301,9 @@ export const GoogleChatCompleteConfig: ProviderConfig = {
                 parts.push({
                   text: c.text,
                 });
-              }
-              if (c.type === 'image_url') {
+              } else if (c.type === 'input_audio') {
+                parts.push(transformInputAudioPart(c));
+              } else if (c.type === 'image_url') {
                 const { url, mime_type: passedMimeType } = c.image_url || {};
                 if (!url) return;
 
@@ -410,16 +430,14 @@ export const GoogleChatCompleteConfig: ProviderConfig = {
           // these are not supported by google
           recursivelyDeleteUnsupportedParameters(tool.function?.parameters);
           delete tool.function?.strict;
-
-          if (['googleSearch', 'google_search'].includes(tool.function.name)) {
-            tools.push({ googleSearch: {} });
-          } else if (
-            ['googleSearchRetrieval', 'google_search_retrieval'].includes(
-              tool.function.name
-            )
-          ) {
-            tools.push(buildGoogleSearchRetrievalTool(tool));
+          if (googleTools.includes(tool.function.name)) {
+            tools.push(...transformGoogleTools(tool));
           } else {
+            if (tool.function?.parameters) {
+              tool.function.parameters = transformGeminiToolParameters(
+                tool.function.parameters
+              );
+            }
             functionDeclarations.push(tool.function);
           }
         }
@@ -463,6 +481,10 @@ export const GoogleChatCompleteConfig: ProviderConfig = {
     param: 'generationConfig',
     transform: (params: Params) => transformGenerationConfig(params),
   },
+  modalities: {
+    param: 'generationConfig',
+    transform: (params: Params) => transformGenerationConfig(params),
+  },
 };
 
 export interface GoogleErrorResponse {
@@ -479,13 +501,17 @@ interface GoogleGenerateFunctionCall {
   args: Record<string, any>;
 }
 
-interface GoogleResponseCandidate {
+export interface GoogleResponseCandidate {
   content: {
     parts: {
       text?: string;
       thought?: string; // for models like gemini-2.0-flash-thinking-exp refer: https://ai.google.dev/gemini-api/docs/thinking-mode#streaming_model_thinking
       functionCall?: GoogleGenerateFunctionCall;
       thoughtSignature?: string;
+      inlineData?: {
+        mimeType: string;
+        data: string;
+      };
     }[];
   };
   logprobsResult?: {
@@ -506,7 +532,7 @@ interface GoogleResponseCandidate {
       },
     ];
   };
-  finishReason: string;
+  finishReason: GOOGLE_GENERATE_CONTENT_FINISH_REASON;
   index: 0;
   safetyRatings: {
     category: string;
@@ -529,6 +555,15 @@ interface GoogleGenerateContentResponse {
     candidatesTokenCount: number;
     totalTokenCount: number;
     thoughtsTokenCount?: number;
+    cachedContentTokenCount?: number;
+    promptTokensDetails: {
+      modality: VERTEX_MODALITY;
+      tokenCount: number;
+    }[];
+    candidatesTokensDetails: {
+      modality: VERTEX_MODALITY;
+      tokenCount: number;
+    }[];
   };
 }
 
@@ -570,6 +605,24 @@ export const GoogleChatCompleteResponseTransform: (
   }
 
   if ('candidates' in response) {
+    const {
+      promptTokenCount = 0,
+      candidatesTokenCount = 0,
+      totalTokenCount = 0,
+      thoughtsTokenCount = 0,
+      cachedContentTokenCount = 0,
+      promptTokensDetails = [],
+      candidatesTokensDetails = [],
+    } = response.usageMetadata;
+    const inputAudioTokens = promptTokensDetails.reduce((acc, curr) => {
+      if (curr.modality === VERTEX_MODALITY.AUDIO) return acc + curr.tokenCount;
+      return acc;
+    }, 0);
+    const outputAudioTokens = candidatesTokensDetails.reduce((acc, curr) => {
+      if (curr.modality === VERTEX_MODALITY.AUDIO) return acc + curr.tokenCount;
+      return acc;
+    }, 0);
+
     return {
       id: getFakeId(),
       object: 'chat.completion',
@@ -600,6 +653,13 @@ export const GoogleChatCompleteResponseTransform: (
                 content = part.text;
                 contentBlocks.push({ type: 'text', text: part.text });
               }
+            } else if (part.inlineData) {
+              contentBlocks.push({
+                type: 'image_url',
+                image_url: {
+                  url: `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`,
+                },
+              });
             }
           }
 
@@ -622,18 +682,26 @@ export const GoogleChatCompleteResponseTransform: (
             message: message,
             logprobs,
             index: generation.index ?? idx,
-            finish_reason: generation.finishReason,
+            finish_reason: transformFinishReason(
+              generation.finishReason,
+              strictOpenAiCompliance
+            ),
             ...(!strictOpenAiCompliance && generation.groundingMetadata
               ? { groundingMetadata: generation.groundingMetadata }
               : {}),
           };
         }) ?? [],
       usage: {
-        prompt_tokens: response.usageMetadata.promptTokenCount,
-        completion_tokens: response.usageMetadata.candidatesTokenCount,
-        total_tokens: response.usageMetadata.totalTokenCount,
+        prompt_tokens: promptTokenCount,
+        completion_tokens: candidatesTokenCount,
+        total_tokens: totalTokenCount,
         completion_tokens_details: {
-          reasoning_tokens: response.usageMetadata.thoughtsTokenCount ?? 0,
+          reasoning_tokens: thoughtsTokenCount,
+          audio_tokens: outputAudioTokens,
+        },
+        prompt_tokens_details: {
+          cached_tokens: cachedContentTokenCount,
+          audio_tokens: inputAudioTokens,
         },
       },
     };
@@ -682,6 +750,26 @@ export const GoogleChatCompleteStreamChunkTransform: (
       total_tokens: parsedChunk.usageMetadata.totalTokenCount,
       completion_tokens_details: {
         reasoning_tokens: parsedChunk.usageMetadata.thoughtsTokenCount ?? 0,
+        audio_tokens:
+          parsedChunk.usageMetadata?.candidatesTokensDetails?.reduce(
+            (acc, curr) => {
+              if (curr.modality === VERTEX_MODALITY.AUDIO)
+                return acc + curr.tokenCount;
+              return acc;
+            },
+            0
+          ),
+      },
+      prompt_tokens_details: {
+        cached_tokens: parsedChunk.usageMetadata.cachedContentTokenCount,
+        audio_tokens: parsedChunk.usageMetadata?.promptTokensDetails?.reduce(
+          (acc, curr) => {
+            if (curr.modality === VERTEX_MODALITY.AUDIO)
+              return acc + curr.tokenCount;
+            return acc;
+          },
+          0
+        ),
       },
     };
   }
@@ -696,6 +784,12 @@ export const GoogleChatCompleteStreamChunkTransform: (
       choices:
         parsedChunk.candidates?.map((generation, index) => {
           let message: any = { role: 'assistant', content: '' };
+          const finishReason = generation.finishReason
+            ? transformFinishReason(
+                generation.finishReason,
+                strictOpenAiCompliance
+              )
+            : null;
           if (generation.content?.parts[0]?.text) {
             const contentBlocks = [];
             let content = '';
@@ -738,11 +832,28 @@ export const GoogleChatCompleteStreamChunkTransform: (
                 }
               }),
             };
+          } else if (generation.content?.parts[0]?.inlineData) {
+            const part = generation.content.parts[0];
+            const contentBlocks = [
+              {
+                index: streamState.containsChainOfThoughtMessage ? 1 : 0,
+                delta: {
+                  type: 'image_url',
+                  image_url: {
+                    url: `data:${part.inlineData?.mimeType};base64,${part.inlineData?.data}`,
+                  },
+                },
+              },
+            ];
+            message = {
+              role: 'assistant',
+              content_blocks: contentBlocks,
+            };
           }
           return {
             delta: message,
             index: generation.index ?? index,
-            finish_reason: generation.finishReason,
+            finish_reason: finishReason,
             ...(!strictOpenAiCompliance && generation.groundingMetadata
               ? { groundingMetadata: generation.groundingMetadata }
               : {}),

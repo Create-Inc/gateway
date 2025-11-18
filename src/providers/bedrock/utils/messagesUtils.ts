@@ -75,14 +75,19 @@ export const transformToolsConfig = (params: BedrockMessagesParams) => {
             inputSchema: { json: tool.input_schema },
             description: tool.description,
           },
-          ...(tool.cache_control && {
+        });
+        if (tool.cache_control) {
+          tools.push({
             cachePoint: {
               type: 'default',
             },
-          }),
-        });
+          });
+        }
       }
     }
+  }
+  if (tools.length === 0) {
+    return null;
   }
   return { tools, toolChoice };
 };

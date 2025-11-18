@@ -155,7 +155,7 @@ async function processLog(c: Context, start: number) {
   await broadcastLog(JSON.stringify(logData));
 }
 
-export const logger = () => {
+export const logHandler = () => {
   return async (c: Context, next: any) => {
     c.set('addLogClient', addLogClient);
     c.set('removeLogClient', removeLogClient);

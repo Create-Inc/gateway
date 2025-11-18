@@ -38,6 +38,14 @@ import {
 } from './helpers';
 
 export const OpenAICreateModelResponseConfig: ProviderConfig = {
+  background: {
+    param: 'background',
+    required: false,
+  },
+  conversation: {
+    param: 'conversation',
+    required: false,
+  },
   input: {
     param: 'input',
     required: true,
@@ -52,6 +60,10 @@ export const OpenAICreateModelResponseConfig: ProviderConfig = {
   },
   instructions: {
     param: 'instructions',
+    required: false,
+  },
+  max_tool_calls: {
+    param: 'max_tool_calls',
     required: false,
   },
   max_output_tokens: {
@@ -74,8 +86,24 @@ export const OpenAICreateModelResponseConfig: ProviderConfig = {
     param: 'previous_response_id',
     required: false,
   },
+  prompt: {
+    param: 'prompt',
+    required: false,
+  },
+  prompt_cache_key: {
+    param: 'prompt_cache_key',
+    required: false,
+  },
   reasoning: {
     param: 'reasoning',
+    required: false,
+  },
+  safety_identifier: {
+    param: 'safety_identifier',
+    required: false,
+  },
+  service_tier: {
+    param: 'service_tier',
     required: false,
   },
   store: {
@@ -84,6 +112,10 @@ export const OpenAICreateModelResponseConfig: ProviderConfig = {
   },
   stream: {
     param: 'stream',
+    required: false,
+  },
+  stream_options: {
+    param: 'stream_options',
     required: false,
   },
   temperature: {
@@ -102,20 +134,24 @@ export const OpenAICreateModelResponseConfig: ProviderConfig = {
     param: 'tools',
     required: false,
   },
-  top_p: {
-    param: 'top_p',
+  top_logprobs: {
+    param: 'top_logprobs',
     required: false,
   },
-  user: {
-    param: 'user',
+  top_p: {
+    param: 'top_p',
     required: false,
   },
   truncation: {
     param: 'truncation',
     required: false,
   },
-  background: {
-    param: 'background',
+  user: {
+    param: 'user',
+    required: false,
+  },
+  verbosity: {
+    param: 'verbosity',
     required: false,
   },
 };

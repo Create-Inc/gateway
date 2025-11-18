@@ -1,8 +1,9 @@
 import {
-  GoogleBatchRecord,
   GoogleErrorResponse,
-  GoogleFinetuneRecord,
   GoogleResponseCandidate,
+  GoogleBatchRecord,
+  GoogleFinetuneRecord,
+  GoogleSearchRetrievalTool,
 } from './types';
 import { generateErrorResponse } from '../utils';
 import {
@@ -13,6 +14,8 @@ import {
 import { ErrorResponse, FinetuneRequest, Logprobs } from '../types';
 import { Context } from 'hono';
 import { env } from 'hono/adapter';
+import { ContentType, JsonSchema, Tool } from '../../types/requestBody';
+import { GoogleMessagePart } from '../google/chatComplete';
 
 /**
  * Encodes an object as a Base64 URL-encoded string.
@@ -158,7 +161,9 @@ export const getModelAndProvider = (modelString: string) => {
   const modelStringParts = modelString.split('.');
   if (
     modelStringParts.length > 1 &&
-    ['google', 'anthropic', 'meta', 'endpoints'].includes(modelStringParts[0])
+    ['google', 'anthropic', 'meta', 'endpoints', 'mistralai'].includes(
+      modelStringParts[0]
+    )
   ) {
     provider = modelStringParts[0];
     model = modelStringParts.slice(1).join('.');
@@ -194,40 +199,105 @@ export const GoogleErrorResponseTransform: (
   return undefined;
 };
 
-const getDefFromRef = (ref: string) => {
-  const refParts = ref.split('/');
-  return refParts.at(-1);
+// Extract definition key from a JSON Schema $ref string
+const getDefFromRef = (ref: string): string | null => {
+  const match = ref.match(/^#\/\$defs\/(.+)$/);
+  return match ? match[1] : null;
 };
 
-const getRefParts = (spec: Record<string, any>, ref: string) => {
-  return spec?.[ref];
-};
+const getDefObject = (
+  defs: Record<string, any> | undefined | null,
+  key: string | null
+): any => (key && defs ? defs[key] : undefined);
 
-export const derefer = (spec: Record<string, any>, defs = null) => {
-  const original = { ...spec };
-
-  const finalDefs = defs ?? original?.['$defs'];
-  const entries = Object.entries(original);
-
-  for (let [key, object] of entries) {
-    if (key === '$defs') {
-      continue;
-    }
-    if (typeof object === 'string' || Array.isArray(object)) {
-      continue;
-    }
-    const ref = object?.['$ref'];
-    if (ref) {
-      const def = getDefFromRef(ref);
-      const defData = getRefParts(finalDefs, def ?? '');
-      const newValue = derefer(defData, finalDefs);
-      original[key] = newValue;
-    } else {
-      const newValue = derefer(object, finalDefs);
-      original[key] = newValue;
+// Recursively expands $ref nodes in a JSON Schema object tree
+export const derefer = (
+  schema: any,
+  defs: Record<string, any> | null = null,
+  stack: Set<string> = new Set()
+): any => {
+  if (schema === null || typeof schema !== 'object') return schema;
+  if (Array.isArray(schema))
+    return schema.map((item) => derefer(item, defs, stack));
+  const node = { ...schema };
+  const activeDefs =
+    defs ?? (node.$defs as Record<string, any> | undefined) ?? null;
+  if ('$ref' in node && typeof node.$ref === 'string') {
+    const defKey = getDefFromRef(node.$ref);
+    const target = getDefObject(activeDefs, defKey);
+    if (defKey && target) {
+      if (stack.has(defKey)) return node;
+      stack.add(defKey);
+      const resolved = derefer(target, activeDefs, stack);
+      stack.delete(defKey);
+      const keys = Object.keys(node);
+      if (keys.length === 1) return resolved;
+      const { $ref: _, ...siblings } = node;
+      for (const key of Object.keys(node)) delete (node as any)[key];
+      Object.assign(node as any, resolved, siblings);
     }
   }
-  return original;
+  for (const [k, v] of Object.entries(node)) {
+    if (k === '$defs') continue;
+    node[k] = derefer(v, activeDefs, stack);
+  }
+  return node;
+};
+
+export const transformGeminiToolParameters = (
+  parameters: JsonSchema
+): JsonSchema => {
+  if (
+    !parameters ||
+    typeof parameters !== 'object' ||
+    Array.isArray(parameters)
+  ) {
+    return parameters;
+  }
+
+  let schema: JsonSchema = parameters;
+  if ('$defs' in schema && typeof schema.$defs === 'object') {
+    schema = derefer(schema);
+    delete schema.$defs;
+  }
+
+  const isNullTypeNode = (node: any): boolean =>
+    node && typeof node === 'object' && node.type === 'null';
+
+  const transformNode = (node: JsonSchema): JsonSchema => {
+    if (Array.isArray(node)) {
+      return node.map(transformNode);
+    }
+    if (!node || typeof node !== 'object') return node;
+
+    const transformed: JsonSchema = {};
+
+    for (const [key, value] of Object.entries(node)) {
+      if ((key === 'anyOf' || key === 'oneOf') && Array.isArray(value)) {
+        const nonNullItems = value.filter((item) => !isNullTypeNode(item));
+        const hadNull = nonNullItems.length < value.length;
+
+        if (nonNullItems.length === 1 && hadNull) {
+          // Flatten to single schema: get rid of anyOf/oneOf and set nullable: true
+          const single = transformNode(nonNullItems[0]);
+          if (single && typeof single === 'object') {
+            Object.assign(transformed, single);
+            transformed.nullable = true;
+          }
+          continue;
+        }
+
+        transformed[key] = transformNode(hadNull ? nonNullItems : value);
+        if (hadNull) transformed.nullable = true;
+        continue;
+      }
+
+      transformed[key] = transformNode(value);
+    }
+    return transformed;
+  };
+
+  return transformNode(schema);
 };
 
 // Vertex AI does not support additionalProperties in JSON Schema
@@ -353,7 +423,7 @@ const getTimeKey = (status: GoogleBatchRecord['state'], value: string) => {
 
 export const GoogleToOpenAIBatch = (response: GoogleBatchRecord) => {
   const jobId = response.name.split('/').at(-1);
-  const total = Object.values(response.completionsStats ?? {}).reduce(
+  const total = Object.values(response.completionStats ?? {}).reduce(
     (acc, current) => acc + Number.parseInt(current),
     0
   );
@@ -362,7 +432,6 @@ export const GoogleToOpenAIBatch = (response: GoogleBatchRecord) => {
     ? BatchEndpoints.EMBEDDINGS
     : BatchEndpoints.CHAT_COMPLETIONS;
 
-  // Embeddings file is `000000000000.jsonl`, for inference the output is at `predictions.jsonl`
   const fileSuffix =
     endpoint === BatchEndpoints.EMBEDDINGS
       ? '000000000000.jsonl'
@@ -392,8 +461,8 @@ export const GoogleToOpenAIBatch = (response: GoogleBatchRecord) => {
     ...getTimeKey(response.state, response.updateTime),
     request_counts: {
       total: total,
-      completed: response.completionsStats?.successfulCount,
-      failed: response.completionsStats?.failedCount,
+      completed: response.completionStats?.successfulCount,
+      failed: response.completionStats?.failedCount,
     },
     ...(response.error && {
       errors: {
@@ -402,46 +471,6 @@ export const GoogleToOpenAIBatch = (response: GoogleBatchRecord) => {
       },
     }),
   };
-};
-
-export const fetchGoogleCustomEndpoint = async ({
-  authorization,
-  method,
-  url,
-  body,
-}: {
-  url: string;
-  body?: ReadableStream | Record<string, unknown>;
-  authorization: string;
-  method: string;
-}) => {
-  const result = { response: null, error: null, status: null };
-  try {
-    const options = {
-      ...(method !== 'GET' &&
-        body && {
-          body: typeof body === 'object' ? JSON.stringify(body) : body,
-        }),
-      method: method,
-      headers: {
-        Authorization: authorization,
-        'Content-Type': 'application/json',
-      },
-    };
-
-    const request = await fetch(url, options);
-    if (!request.ok) {
-      const error = await request.text();
-      result.error = error as any;
-      result.status = request.status as any;
-    }
-
-    const response = await request.json();
-    result.response = response as any;
-  } catch (error) {
-    result.error = error as any;
-  }
-  return result;
 };
 
 export const transformVertexLogprobs = (
@@ -567,9 +596,6 @@ export const vertexRequestLineHandler = (
       return transformedBody;
   }
 };
-export const isEmbeddingModel = (modelName: string) => {
-  return modelName.includes('embedding');
-};
 
 export const generateSignedURL = async (
   serviceAccountInfo: Record<string, any>,
@@ -681,4 +707,85 @@ export const generateSignedURL = async (
   // Construct the final URL
   const schemeAndHost = `https://${host}`;
   return `${schemeAndHost}${canonicalUri}?${canonicalQueryString}&x-goog-signature=${signatureHex}`;
+};
+
+export const isEmbeddingModel = (modelName: string) => {
+  return modelName.includes('embedding');
+};
+
+export const OPENAI_AUDIO_FORMAT_TO_VERTEX_MIME_TYPE_MAPPING = {
+  mp3: 'audio/mp3',
+  wav: 'audio/wav',
+  opus: 'audio/ogg',
+  flac: 'audio/flac',
+  pcm16: 'audio/pcm',
+  'x-aac': 'audio/aac',
+  'x-m4a': 'audio/m4a',
+  mpeg: 'audio/mpeg',
+  mpga: 'audio/mpga',
+  mp4: 'audio/mp4',
+  webm: 'audio/webm',
+};
+
+export const transformInputAudioPart = (c: ContentType): GoogleMessagePart => {
+  const data = c.input_audio?.data;
+  const mimeType =
+    OPENAI_AUDIO_FORMAT_TO_VERTEX_MIME_TYPE_MAPPING[
+      c.input_audio
+        ?.format as keyof typeof OPENAI_AUDIO_FORMAT_TO_VERTEX_MIME_TYPE_MAPPING
+    ];
+  return {
+    inlineData: {
+      data: data ?? '',
+      mimeType,
+    },
+  };
+};
+
+export const googleTools = [
+  'googleSearch',
+  'google_search',
+  'googleSearchRetrieval',
+  'google_search_retrieval',
+  'computerUse',
+  'computer_use',
+];
+
+export const transformGoogleTools = (tool: Tool) => {
+  const tools: any = [];
+  if (['googleSearch', 'google_search'].includes(tool.function.name)) {
+    const timeRangeFilter = tool.function.parameters?.timeRangeFilter;
+    tools.push({
+      googleSearch: {
+        // allow null
+        ...(timeRangeFilter !== undefined && { timeRangeFilter }),
+      },
+    });
+  } else if (
+    ['googleSearchRetrieval', 'google_search_retrieval'].includes(
+      tool.function.name
+    )
+  ) {
+    tools.push(buildGoogleSearchRetrievalTool(tool));
+  } else if (['computerUse', 'computer_use'].includes(tool.function.name)) {
+    tools.push({
+      computerUse: {
+        environment: tool.function.parameters?.environment,
+        excludedPredefinedFunctions:
+          tool.function.parameters?.excluded_predefined_functions,
+      },
+    });
+  }
+  return tools;
+};
+
+export const buildGoogleSearchRetrievalTool = (tool: Tool) => {
+  const googleSearchRetrievalTool: GoogleSearchRetrievalTool = {
+    googleSearchRetrieval: {},
+  };
+  if (tool.function.parameters?.dynamicRetrievalConfig) {
+    googleSearchRetrievalTool.googleSearchRetrieval.dynamicRetrievalConfig =
+      tool.function.parameters.dynamicRetrievalConfig;
+  }
+  return googleSearchRetrievalTool;
 };
