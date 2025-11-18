@@ -6,7 +6,6 @@ import {
   ContentType,
   Message,
   Params,
-  Tool,
   ToolCall,
   SYSTEM_MESSAGE_ROLES,
   MESSAGE_ROLES,
@@ -17,17 +16,19 @@ import {
   AnthropicChatCompleteStreamResponse,
 } from '../anthropic/chatComplete';
 import {
-  AnthropicErrorResponse,
   AnthropicStreamState,
+  AnthropicErrorResponse,
 } from '../anthropic/types';
 import {
   GoogleMessage,
+  GoogleMessagePart,
   GoogleMessageRole,
   GoogleToolConfig,
   SYSTEM_INSTRUCTION_DISABLED_MODELS,
   transformOpenAIRoleToGoogleRole,
   transformToolChoiceForGemini,
 } from '../google/chatComplete';
+import { GOOGLE_GENERATE_CONTENT_FINISH_REASON } from '../google/types';
 import {
   ChatCompletionResponse,
   ErrorResponse,
@@ -38,31 +39,25 @@ import {
   generateErrorResponse,
   generateInvalidProviderResponseError,
   getFakeId,
+  transformFinishReason,
 } from '../utils';
 import { transformGenerationConfig } from './transformGenerationConfig';
-import type {
+import {
   GoogleErrorResponse,
   GoogleGenerateContentResponse,
   VertexLlamaChatCompleteStreamChunk,
   VertexLLamaChatCompleteResponse,
   GoogleSearchRetrievalTool,
+  VERTEX_MODALITY,
 } from './types';
 import {
   getMimeType,
+  googleTools,
   recursivelyDeleteUnsupportedParameters,
+  transformGoogleTools,
+  transformInputAudioPart,
   transformVertexLogprobs,
 } from './utils';
-
-export const buildGoogleSearchRetrievalTool = (tool: Tool) => {
-  const googleSearchRetrievalTool: GoogleSearchRetrievalTool = {
-    googleSearchRetrieval: {},
-  };
-  if (tool.function.parameters?.dynamicRetrievalConfig) {
-    googleSearchRetrievalTool.googleSearchRetrieval.dynamicRetrievalConfig =
-      tool.function.parameters.dynamicRetrievalConfig;
-  }
-  return googleSearchRetrievalTool;
-};
 
 export const VertexGoogleChatCompleteConfig: ProviderConfig = {
   // https://cloud.google.com/vertex-ai/generative-ai/docs/learn/model-versioning#gemini-model-versions
@@ -89,7 +84,7 @@ export const VertexGoogleChatCompleteConfig: ProviderConfig = {
             return;
 
           const role = transformOpenAIRoleToGoogleRole(message.role);
-          let parts = [];
+          let parts: GoogleMessagePart[] = [];
 
           if (message.role === 'assistant' && message.tool_calls) {
             message.tool_calls.forEach((tool_call: ToolCall) => {
@@ -100,15 +95,12 @@ export const VertexGoogleChatCompleteConfig: ProviderConfig = {
                 },
               });
             });
-          } else if (
-            message.role === 'tool' &&
-            typeof message.content === 'string'
-          ) {
+          } else if (message.role === 'tool') {
             parts.push({
               functionResponse: {
                 name: message.name ?? 'gateway-tool-filler-name',
                 response: {
-                  content: message.content,
+                  output: message.content ?? '',
                 },
               },
             });
@@ -116,10 +108,11 @@ export const VertexGoogleChatCompleteConfig: ProviderConfig = {
             message.content.forEach((c: ContentType) => {
               if (c.type === 'text') {
                 parts.push({
-                  text: c.text,
+                  text: c.text ?? '',
                 });
-              }
-              if (c.type === 'image_url') {
+              } else if (c.type === 'input_audio') {
+                parts.push(transformInputAudioPart(c));
+              } else if (c.type === 'image_url') {
                 const { url, mime_type: passedMimeType } = c.image_url || {};
 
                 if (!url) {
@@ -158,7 +151,7 @@ export const VertexGoogleChatCompleteConfig: ProviderConfig = {
                   parts.push({
                     inlineData: {
                       mimeType: 'image/jpeg',
-                      data: c.image_url?.url,
+                      data: c.image_url?.url ?? '',
                     },
                   });
                 }
@@ -292,15 +285,8 @@ export const VertexGoogleChatCompleteConfig: ProviderConfig = {
           // these are not supported by google
           recursivelyDeleteUnsupportedParameters(tool.function?.parameters);
           delete tool.function?.strict;
-
-          if (['googleSearch', 'google_search'].includes(tool.function.name)) {
-            tools.push({ googleSearch: {} });
-          } else if (
-            ['googleSearchRetrieval', 'google_search_retrieval'].includes(
-              tool.function.name
-            )
-          ) {
-            tools.push(buildGoogleSearchRetrievalTool(tool));
+          if (googleTools.includes(tool.function.name)) {
+            tools.push(...transformGoogleTools(tool));
           } else {
             functionDeclarations.push(tool.function);
           }
@@ -341,6 +327,10 @@ export const VertexGoogleChatCompleteConfig: ProviderConfig = {
     param: 'labels',
   },
   thinking: {
+    param: 'generationConfig',
+    transform: (params: Params) => transformGenerationConfig(params),
+  },
+  modalities: {
     param: 'generationConfig',
     transform: (params: Params) => transformGenerationConfig(params),
   },
@@ -436,13 +426,27 @@ export const GoogleChatCompleteResponseTransform: (
     );
   }
 
-  if ('candidates' in response) {
+  // sometimes vertex gemini returns usageMetadata without candidates
+  const isValidResponse =
+    'candidates' in response || 'usageMetadata' in response;
+  if (isValidResponse) {
     const {
       promptTokenCount = 0,
       candidatesTokenCount = 0,
       totalTokenCount = 0,
       thoughtsTokenCount = 0,
+      cachedContentTokenCount = 0,
+      promptTokensDetails = [],
+      candidatesTokensDetails = [],
     } = response.usageMetadata;
+    const inputAudioTokens = promptTokensDetails.reduce((acc, curr) => {
+      if (curr.modality === VERTEX_MODALITY.AUDIO) return acc + curr.tokenCount;
+      return acc;
+    }, 0);
+    const outputAudioTokens = candidatesTokensDetails.reduce((acc, curr) => {
+      if (curr.modality === VERTEX_MODALITY.AUDIO) return acc + curr.tokenCount;
+      return acc;
+    }, 0);
 
     return {
       id: getFakeId(),
@@ -473,6 +477,13 @@ export const GoogleChatCompleteResponseTransform: (
                 content = part.text;
                 contentBlocks.push({ type: 'text', text: part.text });
               }
+            } else if (part.inlineData) {
+              contentBlocks.push({
+                type: 'image_url',
+                image_url: {
+                  url: `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`,
+                },
+              });
             }
           }
 
@@ -495,7 +506,10 @@ export const GoogleChatCompleteResponseTransform: (
           return {
             message: message,
             index: index,
-            finish_reason: generation.finishReason,
+            finish_reason: transformFinishReason(
+              generation.finishReason as GOOGLE_GENERATE_CONTENT_FINISH_REASON,
+              strictOpenAiCompliance
+            ),
             logprobs,
             ...(!strictOpenAiCompliance && {
               safetyRatings: generation.safetyRatings,
@@ -511,6 +525,11 @@ export const GoogleChatCompleteResponseTransform: (
         total_tokens: totalTokenCount,
         completion_tokens_details: {
           reasoning_tokens: thoughtsTokenCount,
+          audio_tokens: outputAudioTokens,
+        },
+        prompt_tokens_details: {
+          cached_tokens: cachedContentTokenCount,
+          audio_tokens: inputAudioTokens,
         },
       },
     };
@@ -604,6 +623,26 @@ export const GoogleChatCompleteStreamChunkTransform: (
       total_tokens: parsedChunk.usageMetadata.totalTokenCount,
       completion_tokens_details: {
         reasoning_tokens: parsedChunk.usageMetadata.thoughtsTokenCount ?? 0,
+        audio_tokens:
+          parsedChunk.usageMetadata?.candidatesTokensDetails?.reduce(
+            (acc, curr) => {
+              if (curr.modality === VERTEX_MODALITY.AUDIO)
+                return acc + curr.tokenCount;
+              return acc;
+            },
+            0
+          ),
+      },
+      prompt_tokens_details: {
+        cached_tokens: parsedChunk.usageMetadata.cachedContentTokenCount,
+        audio_tokens: parsedChunk.usageMetadata?.promptTokensDetails?.reduce(
+          (acc, curr) => {
+            if (curr.modality === VERTEX_MODALITY.AUDIO)
+              return acc + curr.tokenCount;
+            return acc;
+          },
+          0
+        ),
       },
     };
   }
@@ -616,6 +655,13 @@ export const GoogleChatCompleteStreamChunkTransform: (
     provider: GOOGLE_VERTEX_AI,
     choices:
       parsedChunk.candidates?.map((generation, index) => {
+        const finishReason = generation.finishReason
+          ? transformFinishReason(
+              parsedChunk.candidates[0]
+                .finishReason as GOOGLE_GENERATE_CONTENT_FINISH_REASON,
+              strictOpenAiCompliance
+            )
+          : null;
         let message: any = { role: 'assistant', content: '' };
         if (generation.content?.parts[0]?.text) {
           const contentBlocks = [];
@@ -658,11 +704,28 @@ export const GoogleChatCompleteStreamChunkTransform: (
               }
             }),
           };
+        } else if (generation.content?.parts[0]?.inlineData) {
+          const part = generation.content.parts[0];
+          const contentBlocks = [
+            {
+              index: streamState.containsChainOfThoughtMessage ? 1 : 0,
+              delta: {
+                type: 'image_url',
+                image_url: {
+                  url: `data:${part.inlineData?.mimeType};base64,${part.inlineData?.data}`,
+                },
+              },
+            },
+          ];
+          message = {
+            role: 'assistant',
+            content_blocks: contentBlocks,
+          };
         }
         return {
           delta: message,
           index: index,
-          finish_reason: generation.finishReason,
+          finish_reason: finishReason,
           ...(!strictOpenAiCompliance && {
             safetyRatings: generation.safetyRatings,
           }),
@@ -716,7 +779,22 @@ export const VertexAnthropicChatCompleteResponseTransform: (
   }
 
   if ('content' in response) {
-    const { input_tokens = 0, output_tokens = 0 } = response?.usage ?? {};
+    const {
+      input_tokens = 0,
+      output_tokens = 0,
+      cache_creation_input_tokens = 0,
+      cache_read_input_tokens = 0,
+    } = response?.usage ?? {};
+
+    const totalTokens =
+      input_tokens +
+      output_tokens +
+      cache_creation_input_tokens +
+      cache_read_input_tokens;
+
+    const shouldSendCacheUsage =
+      !strictOpenAiCompliance &&
+      (cache_creation_input_tokens || cache_read_input_tokens);
 
     let content: AnthropicContentItem[] | string = strictOpenAiCompliance
       ? ''
@@ -762,13 +840,23 @@ export const VertexAnthropicChatCompleteResponseTransform: (
           },
           index: 0,
           logprobs: null,
-          finish_reason: response.stop_reason,
+          finish_reason: transformFinishReason(
+            response.stop_reason,
+            strictOpenAiCompliance
+          ),
         },
       ],
       usage: {
         prompt_tokens: input_tokens,
         completion_tokens: output_tokens,
-        total_tokens: input_tokens + output_tokens,
+        total_tokens: totalTokens,
+        prompt_tokens_details: {
+          cached_tokens: cache_read_input_tokens,
+        },
+        ...(shouldSendCacheUsage && {
+          cache_read_input_tokens: cache_read_input_tokens,
+          cache_creation_input_tokens: cache_creation_input_tokens,
+        }),
       },
     };
   }
@@ -787,6 +875,9 @@ export const VertexAnthropicChatCompleteStreamChunkTransform: (
   streamState,
   strictOpenAiCompliance
 ) => {
+  if (streamState.toolIndex == undefined) {
+    streamState.toolIndex = -1;
+  }
   let chunk = responseChunk.trim();
 
   if (
@@ -834,10 +925,20 @@ export const VertexAnthropicChatCompleteStreamChunkTransform: (
   }
 
   if (parsedChunk.type === 'message_start' && parsedChunk.message?.usage) {
+    const shouldSendCacheUsage =
+      parsedChunk.message?.usage?.cache_read_input_tokens ||
+      parsedChunk.message?.usage?.cache_creation_input_tokens;
+
     streamState.model = parsedChunk?.message?.model ?? '';
 
     streamState.usage = {
       prompt_tokens: parsedChunk.message.usage?.input_tokens,
+      ...(shouldSendCacheUsage && {
+        cache_read_input_tokens:
+          parsedChunk.message?.usage?.cache_read_input_tokens,
+        cache_creation_input_tokens:
+          parsedChunk.message?.usage?.cache_creation_input_tokens,
+      }),
     };
     return (
       `data: ${JSON.stringify({
@@ -864,6 +965,12 @@ export const VertexAnthropicChatCompleteStreamChunkTransform: (
   }
 
   if (parsedChunk.type === 'message_delta' && parsedChunk.usage) {
+    const totalTokens =
+      (streamState?.usage?.prompt_tokens ?? 0) +
+      (streamState?.usage?.cache_creation_input_tokens ?? 0) +
+      (streamState?.usage?.cache_read_input_tokens ?? 0) +
+      (parsedChunk.usage.output_tokens ?? 0);
+
     return (
       `data: ${JSON.stringify({
         id: fallbackId,
@@ -875,15 +982,19 @@ export const VertexAnthropicChatCompleteStreamChunkTransform: (
           {
             index: 0,
             delta: {},
-            finish_reason: parsedChunk.delta?.stop_reason,
+            finish_reason: transformFinishReason(
+              parsedChunk.delta?.stop_reason,
+              strictOpenAiCompliance
+            ),
           },
         ],
         usage: {
+          ...streamState.usage,
           completion_tokens: parsedChunk.usage?.output_tokens,
-          prompt_tokens: streamState.usage?.prompt_tokens,
-          total_tokens:
-            (streamState.usage?.prompt_tokens || 0) +
-            (parsedChunk.usage?.output_tokens || 0),
+          total_tokens: totalTokens,
+          prompt_tokens_details: {
+            cached_tokens: streamState.usage?.cache_read_input_tokens ?? 0,
+          },
         },
       })}` + '\n\n'
     );
@@ -894,9 +1005,7 @@ export const VertexAnthropicChatCompleteStreamChunkTransform: (
     parsedChunk.type === 'content_block_start' &&
     parsedChunk.content_block?.type === 'tool_use';
   if (isToolBlockStart) {
-    streamState.toolIndex = streamState.toolIndex
-      ? streamState.toolIndex + 1
-      : 0;
+    streamState.toolIndex = streamState.toolIndex + 1;
   }
   const isToolBlockDelta: boolean =
     parsedChunk.type === 'content_block_delta' &&

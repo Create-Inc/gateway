@@ -1,5 +1,6 @@
 // responseService.ts
 
+import { getRuntimeKey } from 'hono/adapter';
 import { HEADER_KEYS, POWERED_BY, RESPONSE_HEADER_KEYS } from '../../globals';
 import { responseHandler } from '../responseHandlers';
 import { HooksService } from './hooksService';
@@ -80,6 +81,7 @@ export class ResponseService {
   }> {
     const url = this.context.requestURL;
     return await responseHandler(
+      this.context.honoContext,
       response,
       this.context.isStreaming,
       this.context.providerOption,
@@ -89,7 +91,8 @@ export class ResponseService {
       this.context.params,
       this.context.strictOpenAiCompliance,
       this.context.honoContext.req.url,
-      this.hooksService.areSyncHooksAvailable
+      this.hooksService.areSyncHooksAvailable,
+      this.hooksService.hookSpan?.id as string
     );
   }
 
@@ -120,9 +123,12 @@ export class ResponseService {
       response.headers.append(HEADER_KEYS.PROVIDER, this.context.provider);
     }
 
-    response.headers.delete('content-encoding');
+    // Remove headers directly
+    if (getRuntimeKey() == 'node') {
+      response.headers.delete('content-encoding');
+      response.headers.delete('transfer-encoding');
+    }
     response.headers.delete('content-length');
-    response.headers.delete('transfer-encoding');
 
     return response;
   }
