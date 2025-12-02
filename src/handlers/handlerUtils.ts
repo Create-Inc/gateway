@@ -305,6 +305,7 @@ export async function tryPost(
       model: requestBody.model,
     })
   ) {
+    console.log('Prefetching image URLs for messages');
     requestBody.messages = await prefetchImageUrls(requestBody.messages);
   }
 
