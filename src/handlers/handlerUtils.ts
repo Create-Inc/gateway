@@ -28,7 +28,7 @@ import { ConditionalRouter } from '../services/conditionalRouter';
 import { RouterError } from '../errors/RouterError';
 import { GatewayError } from '../errors/GatewayError';
 import { HookType } from '../middlewares/hooks/types';
-import { prefetchImageUrls } from '../providers/bedrock/chatComplete';
+import { prefetchImageUrls, shouldPrefetchImageUrls } from '../providers/utils';
 
 // Services
 import { CacheResponseObject, CacheService } from './services/cacheService';
@@ -294,10 +294,16 @@ export async function tryPost(
   currentIndex: number | string,
   method: string = 'POST'
 ): Promise<Response> {
+  const hasMessages = 'messages' in requestBody && requestBody.messages;
+  const hasModel = 'model' in requestBody && requestBody.model;
   if (
-    providerOption.provider === BEDROCK &&
-    'messages' in requestBody &&
-    requestBody.messages
+    hasMessages &&
+    hasModel &&
+    shouldPrefetchImageUrls({
+      messages: requestBody.messages,
+      provider: providerOption.provider,
+      model: requestBody.model,
+    })
   ) {
     requestBody.messages = await prefetchImageUrls(requestBody.messages);
   }
