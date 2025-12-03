@@ -294,21 +294,6 @@ export async function tryPost(
   currentIndex: number | string,
   method: string = 'POST'
 ): Promise<Response> {
-  const hasMessages = 'messages' in requestBody && requestBody.messages;
-  const hasModel = 'model' in requestBody && requestBody.model;
-  if (
-    hasMessages &&
-    hasModel &&
-    shouldPrefetchImageUrls({
-      messages: requestBody.messages,
-      provider: providerOption.provider,
-      model: requestBody.model,
-    })
-  ) {
-    console.log('Prefetching image URLs for messages');
-    requestBody.messages = await prefetchImageUrls(requestBody.messages);
-  }
-
   const requestContext = new RequestContext(
     c,
     providerOption,
@@ -318,6 +303,19 @@ export async function tryPost(
     method,
     currentIndex as number
   );
+  const messages = requestContext.params.messages;
+  const model = requestContext.params.model;
+  if (
+    messages &&
+    shouldPrefetchImageUrls({
+      messages,
+      provider: providerOption.provider,
+      model,
+    })
+  ) {
+    console.log('Prefetching image URLs for messages');
+    requestContext.params.messages = await prefetchImageUrls(messages);
+  }
   const hooksService = new HooksService(requestContext);
   const providerContext = new ProviderContext(requestContext.provider);
   const logsService = new LogsService(c);
