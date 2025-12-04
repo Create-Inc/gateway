@@ -1,9 +1,13 @@
+import urljoin from 'url-join';
 import { ANTHROPIC_STOP_REASON } from './anthropic/types';
 import { FINISH_REASON, ErrorResponse, PROVIDER_FINISH_REASON } from './types';
 import {
   AnthropicFinishReasonMap,
   finishReasonMap,
 } from './utils/finishReasonMap';
+import { ContentType, Message } from '../types/requestBody';
+import { BEDROCK, GOOGLE_VERTEX_AI } from '../globals';
+import { getModelAndProvider } from './google-vertex-ai/utils';
 
 export const generateInvalidProviderResponseError: (
   response: Record<string, any>,
@@ -102,4 +106,71 @@ export const transformToAnthropicStopReason = (
 export function getFakeId() {
   // Some providers have a max length for the id, so we need to limit it
   return ('portkey-' + crypto.randomUUID()).slice(0, 40);
+}
+
+const imageURLToBase64 = async (url: string) => {
+  const urlWithTransformation = url.startsWith('https://ucarecdn.com/')
+    ? urljoin(url, '-/preview/')
+    : url;
+
+  try {
+    const response = await fetch(urlWithTransformation, {
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to fetch image. Status: ${response.status}`);
+    }
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    const contentType = response.headers.get('content-type')?.split(';')[0];
+    const base64String = buffer.toString('base64');
+    const prefix = `data:${contentType};base64,`;
+    return {
+      prefix,
+      base64String,
+    };
+  } catch (error) {
+    console.error('Error trying to encode image url', error);
+  }
+};
+
+export async function prefetchImageUrls(
+  messages: Message[]
+): Promise<Message[]> {
+  for (const msg of messages) {
+    const content: ContentType[] =
+      msg.content_blocks ?? (Array.isArray(msg.content) ? msg.content : []);
+    for (const item of content) {
+      if (item.type === 'image_url' && item.image_url?.url) {
+        const data = await imageURLToBase64(item.image_url.url);
+        if (data) {
+          const { prefix, base64String } = data;
+          item.image_url.url = `${prefix}${base64String}`;
+        }
+      }
+    }
+  }
+  return messages;
+}
+
+export function shouldPrefetchImageUrls({
+  messages,
+  model,
+  provider,
+}: {
+  messages?: Message[];
+  model?: string;
+  provider: string;
+}) {
+  if (!messages || messages.length === 0 || !model) {
+    return false;
+  }
+  switch (provider) {
+    case GOOGLE_VERTEX_AI:
+      return getModelAndProvider(model).provider === 'anthropic';
+    case BEDROCK:
+      return true;
+    default:
+      return false;
+  }
 }
