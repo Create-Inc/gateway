@@ -109,6 +109,14 @@ const transformGenerationConfig = (params: Params) => {
     recursivelyDeleteUnsupportedParameters(schema);
     generationConfig['responseSchema'] = transformGeminiToolParameters(schema);
   }
+
+  if (params.reasoning_effort) {
+    const thinkingConfig: Record<string, any> = {};
+    thinkingConfig['include_thoughts'] = true;
+    thinkingConfig['thinking_level'] = params.reasoning_effort;
+    generationConfig['thinking_config'] = thinkingConfig;
+  }
+
   if (params?.thinking) {
     const thinkingConfig: Record<string, any> = {};
     const { budget_tokens, type } = params.thinking;
@@ -474,6 +482,10 @@ export const GoogleChatCompleteConfig: ProviderConfig = {
     },
   },
   thinking: {
+    param: 'generationConfig',
+    transform: (params: Params) => transformGenerationConfig(params),
+  },
+  reasoning_effort: {
     param: 'generationConfig',
     transform: (params: Params) => transformGenerationConfig(params),
   },
