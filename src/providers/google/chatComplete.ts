@@ -122,6 +122,12 @@ const transformGenerationConfig = (params: Params) => {
       modality.toUpperCase()
     );
   }
+  if (params.reasoning_effort && params.reasoning_effort !== 'none') {
+    const thinkingConfig: Record<string, any> = {};
+    thinkingConfig['includeThoughts'] = true;
+    thinkingConfig['thinkingLevel'] = params.reasoning_effort;
+    generationConfig['thinkingConfig'] = thinkingConfig;
+  }
   return generationConfig;
 };
 
@@ -474,6 +480,10 @@ export const GoogleChatCompleteConfig: ProviderConfig = {
     },
   },
   thinking: {
+    param: 'generationConfig',
+    transform: (params: Params) => transformGenerationConfig(params),
+  },
+  reasoning_effort: {
     param: 'generationConfig',
     transform: (params: Params) => transformGenerationConfig(params),
   },
