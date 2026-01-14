@@ -109,13 +109,13 @@ const transformGenerationConfig = (params: Params) => {
     recursivelyDeleteUnsupportedParameters(schema);
     generationConfig['responseSchema'] = transformGeminiToolParameters(schema);
   }
-  if (params?.thinking) {
+  if (params.thinking) {
     const thinkingConfig: Record<string, any> = {};
     const { budget_tokens, type } = params.thinking;
-    thinkingConfig['include_thoughts'] =
+    thinkingConfig['includeThoughts'] =
       type === 'enabled' && budget_tokens ? true : false;
-    thinkingConfig['thinking_budget'] = params.thinking.budget_tokens;
-    generationConfig['thinking_config'] = thinkingConfig;
+    thinkingConfig['thinkingBudget'] = params.thinking.budget_tokens;
+    generationConfig['thinkingConfig'] = thinkingConfig;
   }
   if (params.modalities) {
     generationConfig['responseModalities'] = params.modalities.map((modality) =>
