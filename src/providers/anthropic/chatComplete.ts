@@ -257,6 +257,42 @@ const transformAndAppendFileContentItem = (
   }
 };
 
+const transformAnthropicUsageMetadata = (
+  usageMetadata:
+    | NonNullable<AnthropicChatCompleteResponse['usage']>
+    | NonNullable<AnthropicChatCompleteStreamResponse['usage']>
+) => {
+  const {
+    input_tokens = 0,
+    output_tokens = 0,
+    cache_creation_input_tokens = 0,
+    cache_read_input_tokens = 0,
+  } = usageMetadata;
+
+  const shouldSendCacheUsage =
+    cache_creation_input_tokens || cache_read_input_tokens;
+
+  return {
+    prompt_tokens:
+      input_tokens + cache_creation_input_tokens + cache_read_input_tokens,
+    completion_tokens: output_tokens,
+    total_tokens:
+      input_tokens +
+      output_tokens +
+      cache_creation_input_tokens +
+      cache_read_input_tokens,
+    ...(shouldSendCacheUsage && {
+      prompt_tokens_details: {
+        cached_tokens: cache_read_input_tokens,
+      },
+    }),
+    ...(shouldSendCacheUsage && {
+      cache_read_input_tokens: cache_read_input_tokens,
+      cache_creation_input_tokens: cache_creation_input_tokens,
+    }),
+  };
+};
+
 export const AnthropicChatCompleteConfig: ProviderConfig = {
   model: {
     param: 'model',
@@ -540,16 +576,6 @@ export const AnthropicChatCompleteResponseTransform: (
   }
 
   if ('content' in response) {
-    const {
-      input_tokens = 0,
-      output_tokens = 0,
-      cache_creation_input_tokens,
-      cache_read_input_tokens,
-    } = response?.usage;
-
-    const shouldSendCacheUsage =
-      cache_creation_input_tokens || cache_read_input_tokens;
-
     let content: string = '';
     response.content.forEach((item) => {
       if (item.type === 'text') {
@@ -597,22 +623,7 @@ export const AnthropicChatCompleteResponseTransform: (
           ),
         },
       ],
-      usage: {
-        prompt_tokens: input_tokens,
-        completion_tokens: output_tokens,
-        total_tokens:
-          input_tokens +
-          output_tokens +
-          (cache_creation_input_tokens ?? 0) +
-          (cache_read_input_tokens ?? 0),
-        prompt_tokens_details: {
-          cached_tokens: cache_read_input_tokens ?? 0,
-        },
-        ...(shouldSendCacheUsage && {
-          cache_read_input_tokens: cache_read_input_tokens,
-          cache_creation_input_tokens: cache_creation_input_tokens,
-        }),
-      },
+      usage: transformAnthropicUsageMetadata(response.usage),
     };
   }
 
@@ -677,21 +688,11 @@ export const AnthropicChatCompleteStreamChunkTransform: (
     );
   }
 
-  const shouldSendCacheUsage =
-    parsedChunk.message?.usage?.cache_read_input_tokens ||
-    parsedChunk.message?.usage?.cache_creation_input_tokens;
-
   if (parsedChunk.type === 'message_start' && parsedChunk.message?.usage) {
     streamState.model = parsedChunk?.message?.model ?? '';
-    streamState.usage = {
-      prompt_tokens: parsedChunk.message?.usage?.input_tokens,
-      ...(shouldSendCacheUsage && {
-        cache_read_input_tokens:
-          parsedChunk.message?.usage?.cache_read_input_tokens,
-        cache_creation_input_tokens:
-          parsedChunk.message?.usage?.cache_creation_input_tokens,
-      }),
-    };
+    streamState.usage = transformAnthropicUsageMetadata(
+      parsedChunk.message?.usage
+    );
     return (
       `data: ${JSON.stringify({
         id: fallbackId,
@@ -716,11 +717,6 @@ export const AnthropicChatCompleteStreamChunkTransform: (
 
   // final chunk
   if (parsedChunk.type === 'message_delta' && parsedChunk.usage) {
-    const totalTokens =
-      (streamState?.usage?.prompt_tokens ?? 0) +
-      (streamState?.usage?.cache_creation_input_tokens ?? 0) +
-      (streamState?.usage?.cache_read_input_tokens ?? 0) +
-      (parsedChunk.usage.output_tokens ?? 0);
     return (
       `data: ${JSON.stringify({
         id: fallbackId,
@@ -738,14 +734,7 @@ export const AnthropicChatCompleteStreamChunkTransform: (
             ),
           },
         ],
-        usage: {
-          ...streamState.usage,
-          completion_tokens: parsedChunk.usage?.output_tokens,
-          total_tokens: totalTokens,
-          prompt_tokens_details: {
-            cached_tokens: streamState.usage?.cache_read_input_tokens ?? 0,
-          },
-        },
+        usage: transformAnthropicUsageMetadata(parsedChunk.usage),
       })}` + '\n\n'
     );
   }
