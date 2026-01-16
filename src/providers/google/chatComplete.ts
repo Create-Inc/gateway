@@ -1,12 +1,11 @@
 import { GOOGLE } from '../../globals';
 import {
-  ContentType,
-  Message,
-  OpenAIMessageRole,
-  Params,
-  ToolCall,
-  ToolChoice,
-  SYSTEM_MESSAGE_ROLES,
+  type ContentType,
+  type Message,
+  type OpenAIMessageRole,
+  type Params,
+  type ToolCall,
+  type ToolChoice,
   MESSAGE_ROLES,
 } from '../../types/requestBody';
 import { VERTEX_MODALITY } from '../google-vertex-ai/types';
@@ -19,7 +18,7 @@ import {
   transformInputAudioPart,
   transformVertexLogprobs,
 } from '../google-vertex-ai/utils';
-import {
+import type {
   ChatCompletionResponse,
   ErrorResponse,
   GroundingMetadata,
@@ -32,13 +31,13 @@ import {
   getFakeId,
   transformFinishReason,
 } from '../utils';
-import { GOOGLE_GENERATE_CONTENT_FINISH_REASON } from './types';
+import type { GOOGLE_GENERATE_CONTENT_FINISH_REASON } from './types';
 
 type ToolCallWithSignature = ToolCall & {
   thoughtSignature: string | undefined;
 };
 
-const convertGoogleApiUsageMetadataToOpenAiUsageMetadata = (
+const convertGoogleApiUsageMetadataToOpenAIUsageMetadata = (
   usageMetadata: GoogleGenerateContentResponse['usageMetadata']
 ) => {
   const {
@@ -721,7 +720,7 @@ export const GoogleChatCompleteResponseTransform: (
               : {}),
           };
         }) ?? [],
-      usage: convertGoogleApiUsageMetadataToOpenAiUsageMetadata(
+      usage: convertGoogleApiUsageMetadataToOpenAIUsageMetadata(
         response.usageMetadata
       ),
     };
@@ -764,7 +763,7 @@ export const GoogleChatCompleteStreamChunkTransform: (
 
   let usageMetadata;
   if (parsedChunk.usageMetadata) {
-    usageMetadata = convertGoogleApiUsageMetadataToOpenAiUsageMetadata(
+    usageMetadata = convertGoogleApiUsageMetadataToOpenAIUsageMetadata(
       parsedChunk.usageMetadata
     );
   }
