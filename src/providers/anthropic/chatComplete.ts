@@ -1,24 +1,23 @@
 import { ANTHROPIC, fileExtensionMimeTypeMap } from '../../globals';
 import {
-  Params,
-  Message,
-  ContentType,
+  type Params,
+  type Message,
+  type ContentType,
   SYSTEM_MESSAGE_ROLES,
-  PromptCache,
+  type PromptCache,
 } from '../../types/requestBody';
-import {
+import type {
   ChatCompletionResponse,
   ErrorResponse,
   ProviderConfig,
 } from '../types';
-import {
+import type {
   AnthropicErrorObject,
   AnthropicErrorResponse,
   AnthropicStreamState,
   ANTHROPIC_STOP_REASON,
 } from './types';
 import {
-  generateErrorResponse,
   generateInvalidProviderResponseError,
   transformFinishReason,
 } from '../utils';
