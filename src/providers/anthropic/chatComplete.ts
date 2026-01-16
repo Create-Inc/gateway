@@ -22,6 +22,7 @@ import {
   transformFinishReason,
 } from '../utils';
 import { AnthropicErrorResponseTransform } from './utils';
+import { transformAnthropicUsageMetadata } from '../utils/transformAnthropicUsageMetadata';
 
 // TODO: this configuration does not enforce the maximum token limit for the input parameter. If you want to enforce this, you might need to add a custom validation function or a max property to the ParameterConfig interface, and then use it in the input configuration. However, this might be complex because the token count is not a simple length check, but depends on the specific tokenization method used by the model.
 
@@ -254,42 +255,6 @@ const transformAndAppendFileContentItem = (
       },
     });
   }
-};
-
-const transformAnthropicUsageMetadata = (
-  usageMetadata:
-    | NonNullable<AnthropicChatCompleteResponse['usage']>
-    | NonNullable<AnthropicChatCompleteStreamResponse['usage']>
-) => {
-  const {
-    input_tokens = 0,
-    output_tokens = 0,
-    cache_creation_input_tokens = 0,
-    cache_read_input_tokens = 0,
-  } = usageMetadata;
-
-  const shouldSendCacheUsage =
-    cache_creation_input_tokens || cache_read_input_tokens;
-
-  return {
-    prompt_tokens:
-      input_tokens + cache_creation_input_tokens + cache_read_input_tokens,
-    completion_tokens: output_tokens,
-    total_tokens:
-      input_tokens +
-      output_tokens +
-      cache_creation_input_tokens +
-      cache_read_input_tokens,
-    ...(shouldSendCacheUsage && {
-      prompt_tokens_details: {
-        cached_tokens: cache_read_input_tokens,
-      },
-    }),
-    ...(shouldSendCacheUsage && {
-      cache_read_input_tokens: cache_read_input_tokens,
-      cache_creation_input_tokens: cache_creation_input_tokens,
-    }),
-  };
 };
 
 export const AnthropicChatCompleteConfig: ProviderConfig = {
