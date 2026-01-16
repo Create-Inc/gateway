@@ -3,33 +3,33 @@
 
 import { GOOGLE_VERTEX_AI } from '../../globals';
 import {
-  ContentType,
-  Message,
-  Params,
-  ToolCall,
+  type ContentType,
+  type Message,
+  type Params,
+  type ToolCall,
   SYSTEM_MESSAGE_ROLES,
   MESSAGE_ROLES,
 } from '../../types/requestBody';
 import {
   AnthropicChatCompleteConfig,
-  AnthropicChatCompleteResponse,
-  AnthropicChatCompleteStreamResponse,
+  type AnthropicChatCompleteResponse,
+  type AnthropicChatCompleteStreamResponse,
 } from '../anthropic/chatComplete';
-import {
+import type {
   AnthropicStreamState,
   AnthropicErrorResponse,
 } from '../anthropic/types';
 import {
-  GoogleMessage,
-  GoogleMessagePart,
-  GoogleMessageRole,
-  GoogleToolConfig,
+  type GoogleMessage,
+  type GoogleMessagePart,
+  type GoogleMessageRole,
+  type GoogleToolConfig,
   SYSTEM_INSTRUCTION_DISABLED_MODELS,
   transformOpenAIRoleToGoogleRole,
   transformToolChoiceForGemini,
 } from '../google/chatComplete';
-import { GOOGLE_GENERATE_CONTENT_FINISH_REASON } from '../google/types';
-import {
+import type { GOOGLE_GENERATE_CONTENT_FINISH_REASON } from '../google/types';
+import type {
   ChatCompletionResponse,
   ErrorResponse,
   Logprobs,
@@ -44,11 +44,10 @@ import {
 import { transformAnthropicUsageMetadata } from '../utils/transformAnthropicUsageMetadata';
 import { transformGenerationConfig } from './transformGenerationConfig';
 import {
-  GoogleErrorResponse,
-  GoogleGenerateContentResponse,
-  VertexLlamaChatCompleteStreamChunk,
-  VertexLLamaChatCompleteResponse,
-  GoogleSearchRetrievalTool,
+  type GoogleErrorResponse,
+  type GoogleGenerateContentResponse,
+  type VertexLlamaChatCompleteStreamChunk,
+  type VertexLLamaChatCompleteResponse,
   VERTEX_MODALITY,
 } from './types';
 import {
