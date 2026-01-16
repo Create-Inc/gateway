@@ -1,12 +1,11 @@
 import { GOOGLE } from '../../globals';
 import {
-  ContentType,
-  Message,
-  OpenAIMessageRole,
-  Params,
-  ToolCall,
-  ToolChoice,
-  SYSTEM_MESSAGE_ROLES,
+  type ContentType,
+  type Message,
+  type OpenAIMessageRole,
+  type Params,
+  type ToolCall,
+  type ToolChoice,
   MESSAGE_ROLES,
 } from '../../types/requestBody';
 import { VERTEX_MODALITY } from '../google-vertex-ai/types';
@@ -19,7 +18,7 @@ import {
   transformInputAudioPart,
   transformVertexLogprobs,
 } from '../google-vertex-ai/utils';
-import {
+import type {
   ChatCompletionResponse,
   ErrorResponse,
   GroundingMetadata,
@@ -32,10 +31,47 @@ import {
   getFakeId,
   transformFinishReason,
 } from '../utils';
-import { GOOGLE_GENERATE_CONTENT_FINISH_REASON } from './types';
+import type { GOOGLE_GENERATE_CONTENT_FINISH_REASON } from './types';
 
 type ToolCallWithSignature = ToolCall & {
   thoughtSignature: string | undefined;
+};
+
+const convertGoogleApiUsageMetadataToOpenAIUsageMetadata = (
+  usageMetadata: GoogleGenerateContentResponse['usageMetadata']
+) => {
+  const {
+    promptTokenCount = 0,
+    toolUsePromptTokenCount = 0,
+    candidatesTokenCount = 0,
+    totalTokenCount = 0,
+    thoughtsTokenCount = 0,
+    cachedContentTokenCount = 0,
+    promptTokensDetails = [],
+    candidatesTokensDetails = [],
+  } = usageMetadata;
+  const inputAudioTokens = promptTokensDetails.reduce((acc, curr) => {
+    if (curr.modality === VERTEX_MODALITY.AUDIO) return acc + curr.tokenCount;
+    return acc;
+  }, 0);
+  const outputAudioTokens = candidatesTokensDetails.reduce((acc, curr) => {
+    if (curr.modality === VERTEX_MODALITY.AUDIO) return acc + curr.tokenCount;
+    return acc;
+  }, 0);
+
+  return {
+    prompt_tokens: promptTokenCount + toolUsePromptTokenCount,
+    completion_tokens: candidatesTokenCount + thoughtsTokenCount,
+    total_tokens: totalTokenCount,
+    completion_tokens_details: {
+      reasoning_tokens: thoughtsTokenCount,
+      audio_tokens: outputAudioTokens,
+    },
+    prompt_tokens_details: {
+      cached_tokens: cachedContentTokenCount,
+      audio_tokens: inputAudioTokens,
+    },
+  };
 };
 
 const joinSystemMessages = (messages: Message[]) =>
@@ -562,6 +598,7 @@ interface GoogleGenerateContentResponse {
   };
   usageMetadata: {
     promptTokenCount: number;
+    toolUsePromptTokenCount?: number;
     candidatesTokenCount: number;
     totalTokenCount: number;
     thoughtsTokenCount?: number;
@@ -615,24 +652,6 @@ export const GoogleChatCompleteResponseTransform: (
   }
 
   if ('candidates' in response) {
-    const {
-      promptTokenCount = 0,
-      candidatesTokenCount = 0,
-      totalTokenCount = 0,
-      thoughtsTokenCount = 0,
-      cachedContentTokenCount = 0,
-      promptTokensDetails = [],
-      candidatesTokensDetails = [],
-    } = response.usageMetadata;
-    const inputAudioTokens = promptTokensDetails.reduce((acc, curr) => {
-      if (curr.modality === VERTEX_MODALITY.AUDIO) return acc + curr.tokenCount;
-      return acc;
-    }, 0);
-    const outputAudioTokens = candidatesTokensDetails.reduce((acc, curr) => {
-      if (curr.modality === VERTEX_MODALITY.AUDIO) return acc + curr.tokenCount;
-      return acc;
-    }, 0);
-
     return {
       id: getFakeId(),
       object: 'chat.completion',
@@ -701,19 +720,9 @@ export const GoogleChatCompleteResponseTransform: (
               : {}),
           };
         }) ?? [],
-      usage: {
-        prompt_tokens: promptTokenCount,
-        completion_tokens: candidatesTokenCount,
-        total_tokens: totalTokenCount,
-        completion_tokens_details: {
-          reasoning_tokens: thoughtsTokenCount,
-          audio_tokens: outputAudioTokens,
-        },
-        prompt_tokens_details: {
-          cached_tokens: cachedContentTokenCount,
-          audio_tokens: inputAudioTokens,
-        },
-      },
+      usage: convertGoogleApiUsageMetadataToOpenAIUsageMetadata(
+        response.usageMetadata
+      ),
     };
   }
 
@@ -754,34 +763,9 @@ export const GoogleChatCompleteStreamChunkTransform: (
 
   let usageMetadata;
   if (parsedChunk.usageMetadata) {
-    usageMetadata = {
-      prompt_tokens: parsedChunk.usageMetadata.promptTokenCount,
-      completion_tokens: parsedChunk.usageMetadata.candidatesTokenCount,
-      total_tokens: parsedChunk.usageMetadata.totalTokenCount,
-      completion_tokens_details: {
-        reasoning_tokens: parsedChunk.usageMetadata.thoughtsTokenCount ?? 0,
-        audio_tokens:
-          parsedChunk.usageMetadata?.candidatesTokensDetails?.reduce(
-            (acc, curr) => {
-              if (curr.modality === VERTEX_MODALITY.AUDIO)
-                return acc + curr.tokenCount;
-              return acc;
-            },
-            0
-          ),
-      },
-      prompt_tokens_details: {
-        cached_tokens: parsedChunk.usageMetadata.cachedContentTokenCount,
-        audio_tokens: parsedChunk.usageMetadata?.promptTokensDetails?.reduce(
-          (acc, curr) => {
-            if (curr.modality === VERTEX_MODALITY.AUDIO)
-              return acc + curr.tokenCount;
-            return acc;
-          },
-          0
-        ),
-      },
-    };
+    usageMetadata = convertGoogleApiUsageMetadataToOpenAIUsageMetadata(
+      parsedChunk.usageMetadata
+    );
   }
 
   return (
