@@ -1,28 +1,28 @@
 import { ANTHROPIC, fileExtensionMimeTypeMap } from '../../globals';
 import {
-  Params,
-  Message,
-  ContentType,
+  type Params,
+  type Message,
+  type ContentType,
   SYSTEM_MESSAGE_ROLES,
-  PromptCache,
+  type PromptCache,
 } from '../../types/requestBody';
-import {
+import type {
   ChatCompletionResponse,
   ErrorResponse,
   ProviderConfig,
 } from '../types';
-import {
+import type {
   AnthropicErrorObject,
   AnthropicErrorResponse,
   AnthropicStreamState,
   ANTHROPIC_STOP_REASON,
 } from './types';
 import {
-  generateErrorResponse,
   generateInvalidProviderResponseError,
   transformFinishReason,
 } from '../utils';
 import { AnthropicErrorResponseTransform } from './utils';
+import { transformAnthropicUsageMetadata } from '../utils/transformAnthropicUsageMetadata';
 
 // TODO: this configuration does not enforce the maximum token limit for the input parameter. If you want to enforce this, you might need to add a custom validation function or a max property to the ParameterConfig interface, and then use it in the input configuration. However, this might be complex because the token count is not a simple length check, but depends on the specific tokenization method used by the model.
 
@@ -523,7 +523,6 @@ export interface AnthropicChatCompleteStreamResponse {
   error?: AnthropicErrorObject;
 }
 
-// TODO: The token calculation is wrong atm
 export const AnthropicChatCompleteResponseTransform: (
   response: AnthropicChatCompleteResponse | AnthropicErrorResponse,
   responseStatus: number,
@@ -540,16 +539,6 @@ export const AnthropicChatCompleteResponseTransform: (
   }
 
   if ('content' in response) {
-    const {
-      input_tokens = 0,
-      output_tokens = 0,
-      cache_creation_input_tokens,
-      cache_read_input_tokens,
-    } = response?.usage;
-
-    const shouldSendCacheUsage =
-      cache_creation_input_tokens || cache_read_input_tokens;
-
     let content: string = '';
     response.content.forEach((item) => {
       if (item.type === 'text') {
@@ -597,22 +586,7 @@ export const AnthropicChatCompleteResponseTransform: (
           ),
         },
       ],
-      usage: {
-        prompt_tokens: input_tokens,
-        completion_tokens: output_tokens,
-        total_tokens:
-          input_tokens +
-          output_tokens +
-          (cache_creation_input_tokens ?? 0) +
-          (cache_read_input_tokens ?? 0),
-        prompt_tokens_details: {
-          cached_tokens: cache_read_input_tokens ?? 0,
-        },
-        ...(shouldSendCacheUsage && {
-          cache_read_input_tokens: cache_read_input_tokens,
-          cache_creation_input_tokens: cache_creation_input_tokens,
-        }),
-      },
+      usage: transformAnthropicUsageMetadata(response.usage),
     };
   }
 
@@ -677,21 +651,11 @@ export const AnthropicChatCompleteStreamChunkTransform: (
     );
   }
 
-  const shouldSendCacheUsage =
-    parsedChunk.message?.usage?.cache_read_input_tokens ||
-    parsedChunk.message?.usage?.cache_creation_input_tokens;
-
   if (parsedChunk.type === 'message_start' && parsedChunk.message?.usage) {
     streamState.model = parsedChunk?.message?.model ?? '';
-    streamState.usage = {
-      prompt_tokens: parsedChunk.message?.usage?.input_tokens,
-      ...(shouldSendCacheUsage && {
-        cache_read_input_tokens:
-          parsedChunk.message?.usage?.cache_read_input_tokens,
-        cache_creation_input_tokens:
-          parsedChunk.message?.usage?.cache_creation_input_tokens,
-      }),
-    };
+    streamState.usage = transformAnthropicUsageMetadata(
+      parsedChunk.message?.usage
+    );
     return (
       `data: ${JSON.stringify({
         id: fallbackId,
@@ -716,11 +680,6 @@ export const AnthropicChatCompleteStreamChunkTransform: (
 
   // final chunk
   if (parsedChunk.type === 'message_delta' && parsedChunk.usage) {
-    const totalTokens =
-      (streamState?.usage?.prompt_tokens ?? 0) +
-      (streamState?.usage?.cache_creation_input_tokens ?? 0) +
-      (streamState?.usage?.cache_read_input_tokens ?? 0) +
-      (parsedChunk.usage.output_tokens ?? 0);
     return (
       `data: ${JSON.stringify({
         id: fallbackId,
@@ -738,14 +697,7 @@ export const AnthropicChatCompleteStreamChunkTransform: (
             ),
           },
         ],
-        usage: {
-          ...streamState.usage,
-          completion_tokens: parsedChunk.usage?.output_tokens,
-          total_tokens: totalTokens,
-          prompt_tokens_details: {
-            cached_tokens: streamState.usage?.cache_read_input_tokens ?? 0,
-          },
-        },
+        usage: transformAnthropicUsageMetadata(parsedChunk.usage),
       })}` + '\n\n'
     );
   }
