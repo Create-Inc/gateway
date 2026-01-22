@@ -39,6 +39,7 @@ import {
 import {
   generateErrorResponse,
   generateInvalidProviderResponseError,
+  getFakeId,
   transformFinishReason,
 } from '../utils';
 import { transformGenerationConfig } from './transformGenerationConfig';
@@ -93,9 +94,6 @@ export const VertexGoogleChatCompleteConfig: ProviderConfig = {
                   name: tool_call.function.name,
                   args: JSON.parse(tool_call.function.arguments),
                 },
-                ...(tool_call.function.thought_signature && {
-                  thoughtSignature: tool_call.function.thought_signature,
-                }),
               });
             });
           } else if (message.role === 'tool') {
@@ -486,7 +484,7 @@ export const GoogleChatCompleteResponseTransform: (
     }, 0);
 
     return {
-      id: 'portkey-' + crypto.randomUUID(),
+      id: getFakeId(),
       object: 'chat.completion',
       created: Math.floor(Date.now() / 1000),
       model: response.modelVersion,
@@ -500,15 +498,11 @@ export const GoogleChatCompleteResponseTransform: (
           for (const part of generation.content?.parts ?? []) {
             if (part.functionCall) {
               toolCalls.push({
-                id: 'portkey-' + crypto.randomUUID(),
+                id: getFakeId(),
                 type: 'function',
                 function: {
                   name: part.functionCall.name,
                   arguments: JSON.stringify(part.functionCall.args),
-                  ...(!strictOpenAiCompliance &&
-                    part.thoughtSignature && {
-                      thought_signature: part.thoughtSignature,
-                    }),
                 },
               });
             } else if (part.text) {
@@ -739,15 +733,11 @@ export const GoogleChatCompleteStreamChunkTransform: (
               if (part.functionCall) {
                 return {
                   index: idx,
-                  id: 'portkey-' + crypto.randomUUID(),
+                  id: getFakeId(),
                   type: 'function',
                   function: {
                     name: part.functionCall.name,
                     arguments: JSON.stringify(part.functionCall.args),
-                    ...(!strictOpenAiCompliance &&
-                      part.thoughtSignature && {
-                        thought_signature: part.thoughtSignature,
-                      }),
                   },
                 };
               }

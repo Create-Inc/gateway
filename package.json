@@ -54,6 +54,8 @@
     "hono": "^4.9.7",
     "jose": "^6.0.11",
     "patch-package": "^8.0.1",
+    "@sentry/cloudflare": "^9.0.0",
+    "url-join": "^5.0.0",
     "ws": "^8.18.0",
     "zod": "^3.22.4"
   },

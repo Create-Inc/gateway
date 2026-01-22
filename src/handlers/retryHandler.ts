@@ -1,4 +1,5 @@
 import retry from 'async-retry';
+import { captureException } from '../sentry';
 import { MAX_RETRY_LIMIT_MS, POSSIBLE_RETRY_STATUS_HEADERS } from '../globals';
 
 async function fetchWithTimeout(
@@ -180,6 +181,8 @@ export const retryRequest = async (
       }
     );
   } catch (error: any) {
+    captureException(error, { url, attempt: lastAttempt });
+
     if (
       error instanceof TypeError &&
       error.cause instanceof Error &&

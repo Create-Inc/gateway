@@ -1,4 +1,6 @@
 import { Context } from 'hono';
+import { captureException, setTag, setContext } from '../sentry';
+import { prefetchImageUrls } from '../providers/bedrock/chatComplete';
 import {
   AZURE_OPEN_AI,
   BEDROCK,
@@ -294,6 +296,14 @@ export async function tryPost(
   currentIndex: number | string,
   method: string = 'POST'
 ): Promise<Response> {
+  if (
+    providerOption.provider === BEDROCK &&
+    'messages' in requestBody &&
+    requestBody.messages
+  ) {
+    requestBody.messages = await prefetchImageUrls(requestBody.messages);
+  }
+
   const requestContext = new RequestContext(
     c,
     providerOption,
@@ -657,7 +667,16 @@ export async function tryTargetsRecursively(
     }
   }
 
-  let response;
+  let response: Response | null = null;
+
+  setTag('provider', currentTarget.provider);
+  setTag('strategyMode', strategyMode);
+  setTag('fn', fn);
+  setContext('overrideParams', currentTarget.overrideParams);
+  setContext('retry', currentTarget.retry);
+  if ('model' in request) {
+    setContext('request', { ...request });
+  }
 
   switch (strategyMode) {
     case StrategyModes.FALLBACK:
@@ -799,15 +818,10 @@ export async function tryTargetsRecursively(
           );
         }
       } catch (error: any) {
+        captureException(error);
         // tryPost always returns a Response.
         // TypeError will check for all unhandled exceptions.
         // GatewayError will check for all handled exceptions which cannot allow the request to proceed.
-        console.error(
-          'tryTargetsRecursively error: ',
-          error.message,
-          error.cause,
-          error.stack
-        );
         const errorMessage =
           error instanceof GatewayError
             ? error.message
@@ -815,7 +829,7 @@ export async function tryTargetsRecursively(
         response = new Response(
           JSON.stringify({
             status: 'failure',
-            message: errorMessage,
+            error: errorMessage,
           }),
           {
             status: error instanceof GatewayError ? error.status : 500,
@@ -830,7 +844,11 @@ export async function tryTargetsRecursively(
       break;
   }
 
-  return response!;
+  if (!response) {
+    throw new Error('Could not create response');
+  }
+
+  return response;
 }
 
 export function constructConfigFromRequestHeaders(

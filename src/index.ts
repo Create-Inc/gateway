@@ -5,6 +5,7 @@
  */
 
 import { Context, Hono } from 'hono';
+import { Sentry, captureException } from './sentry';
 import { prettyJSON } from 'hono/pretty-json';
 import { HTTPException } from 'hono/http-exception';
 import { compress } from 'hono/compress';
@@ -121,6 +122,7 @@ app.notFound((c) => c.json({ message: 'Not Found', ok: false }, 404));
  * Otherwise, logs the error and returns a JSON response with status code 500.
  */
 app.onError((err, c) => {
+  captureException(err);
   logger.error('Global Error Handler: ', err.message, err.cause, err.stack);
   if (err instanceof HTTPException) {
     return err.getResponse();
@@ -294,5 +296,17 @@ app.get('/v1/:path{(?!realtime).*}', requestValidator, proxyHandler);
 
 app.delete('/v1/*', requestValidator, proxyHandler);
 
-// Export the app
-export default app;
+// Export the app wrapped with Sentry for Cloudflare Workers
+interface CloudflareEnv {
+  SENTRY_DSN?: string;
+  CF_VERSION_METADATA?: { id: string };
+}
+
+export default Sentry.withSentry(
+  (env: CloudflareEnv) => ({
+    dsn: env.SENTRY_DSN,
+    release: env.CF_VERSION_METADATA?.id,
+    tracesSampleRate: 1.0,
+  }),
+  app
+);

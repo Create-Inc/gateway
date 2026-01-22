@@ -276,7 +276,6 @@ export interface ToolCall {
     name: string;
     arguments: string;
     description?: string;
-    thought_signature?: string;
   };
 }
 

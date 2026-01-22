@@ -3,6 +3,9 @@ compatibility_date = "2024-12-05"
 main = "src/index.ts"
 compatibility_flags = [ "nodejs_compat" ]
 
+[version_metadata]
+binding = "CF_VERSION_METADATA"
+
 [vars]
 ENVIRONMENT = 'dev'
 CUSTOM_HEADERS_TO_IGNORE = []

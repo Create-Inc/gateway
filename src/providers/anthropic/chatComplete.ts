@@ -162,13 +162,20 @@ const transformAssistantMessage = (msg: Message): AnthropicMessage => {
   }
   if (containsToolCalls) {
     msg.tool_calls.forEach((toolCall: any) => {
+      let input;
+      try {
+        input = JSON.parse(toolCall.function.arguments);
+        if (typeof input !== 'object' || Array.isArray(input)) {
+          input = {};
+        }
+      } catch (error) {
+        input = {};
+      }
       transformedContent.push({
         type: 'tool_use',
         name: toolCall.function.name,
         id: toolCall.id,
-        input: toolCall.function.arguments?.length
-          ? JSON.parse(toolCall.function.arguments)
-          : {},
+        input,
         ...(toolCall.cache_control && {
           cache_control: toolCall.cache_control,
         }),
@@ -277,6 +284,7 @@ export const AnthropicChatCompleteConfig: ProviderConfig = {
       required: true,
       transform: (params: Params) => {
         let messages: AnthropicMessage[] = [];
+
         // Transform the chat messages into a simple prompt
         if (!!params.messages) {
           params.messages.forEach((msg: Message & PromptCache) => {
@@ -329,6 +337,16 @@ export const AnthropicChatCompleteConfig: ProviderConfig = {
       required: false,
       transform: (params: Params) => {
         let systemMessages: AnthropicMessageContentItem[] = [];
+
+        if (
+          params.response_format &&
+          params.response_format.type === 'json_schema'
+        ) {
+          systemMessages.push({
+            type: 'text',
+            text: `Here is the JSON Schema that defines the structure for this conversation. You must follow this schema strictly and only return the JSON object:\n\n${JSON.stringify(params.response_format.json_schema)}`,
+          });
+        }
         // Transform the chat messages into a simple prompt
         if (!!params.messages) {
           params.messages.forEach((msg: Message & PromptCache) => {

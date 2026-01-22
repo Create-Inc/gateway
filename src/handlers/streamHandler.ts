@@ -1,3 +1,4 @@
+import { captureException } from '../sentry';
 import {
   AZURE_OPEN_AI,
   BEDROCK,
@@ -340,6 +341,7 @@ export function handleStreamingMode(
           await writer.write(encoder.encode(chunk));
         }
       } catch (error) {
+        captureException(error, { proxyProvider, context: 'aws-stream' });
         console.error('Error during stream processing:', proxyProvider, error);
       } finally {
         try {
@@ -374,6 +376,7 @@ export function handleStreamingMode(
           await writer.write(encoder.encode(chunk));
         }
       } catch (error) {
+        captureException(error, { proxyProvider, context: 'stream' });
         console.error('Error during stream processing:', proxyProvider, error);
       } finally {
         try {
