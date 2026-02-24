@@ -1,3 +1,4 @@
+import retry from 'async-retry';
 import urljoin from 'url-join';
 import { ANTHROPIC_STOP_REASON } from './anthropic/types';
 import { FINISH_REASON, ErrorResponse, PROVIDER_FINISH_REASON } from './types';
@@ -113,25 +114,30 @@ const imageURLToBase64 = async (url: string) => {
     ? urljoin(url, '-/preview/')
     : url;
 
-  try {
-    const response = await fetch(urlWithTransformation, {
-      signal: AbortSignal.timeout(10000),
-    });
-    if (!response.ok) {
-      throw new Error(`Failed to fetch image. Status: ${response.status}`);
+  return retry(
+    async () => {
+      const response = await fetch(urlWithTransformation, {
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!response.ok) {
+        throw new Error(`Failed to fetch image. Status: ${response.status}`);
+      }
+      const arrayBuffer = await response.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      const contentType = response.headers.get('content-type')?.split(';')[0];
+      const base64String = buffer.toString('base64');
+      const prefix = `data:${contentType};base64,`;
+      return { prefix, base64String };
+    },
+    {
+      retries: 3,
+      onRetry: (error, attempt) => {
+        console.warn(
+          `Image prefetch attempt ${attempt} failed for ${url}: ${error.message}`
+        );
+      },
     }
-    const arrayBuffer = await response.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-    const contentType = response.headers.get('content-type')?.split(';')[0];
-    const base64String = buffer.toString('base64');
-    const prefix = `data:${contentType};base64,`;
-    return {
-      prefix,
-      base64String,
-    };
-  } catch (error) {
-    console.error('Error trying to encode image url', error);
-  }
+  );
 };
 
 export async function prefetchImageUrls(
@@ -140,12 +146,23 @@ export async function prefetchImageUrls(
   for (const msg of messages) {
     const content: ContentType[] =
       msg.content_blocks ?? (Array.isArray(msg.content) ? msg.content : []);
-    for (const item of content) {
+    for (let i = 0; i < content.length; i++) {
+      const item = content[i];
       if (item.type === 'image_url' && item.image_url?.url) {
-        const data = await imageURLToBase64(item.image_url.url);
-        if (data) {
-          const { prefix, base64String } = data;
+        try {
+          const { prefix, base64String } = await imageURLToBase64(
+            item.image_url.url
+          );
           item.image_url.url = `${prefix}${base64String}`;
+        } catch (error) {
+          console.error(
+            `Failed to prefetch image after retries: ${item.image_url.url}`,
+            error
+          );
+          content[i] = {
+            type: 'text',
+            text: `[Image failed to load: ${item.image_url.url}]`,
+          } as ContentType;
         }
       }
     }
