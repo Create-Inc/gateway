@@ -7,7 +7,7 @@ import {
   finishReasonMap,
 } from './utils/finishReasonMap';
 import { ContentType, Message } from '../types/requestBody';
-import { BEDROCK, GOOGLE_VERTEX_AI } from '../globals';
+import { ANTHROPIC, BEDROCK, GOOGLE_VERTEX_AI } from '../globals';
 import { getModelAndProvider } from './google-vertex-ai/utils';
 
 export const generateInvalidProviderResponseError: (
@@ -183,6 +183,8 @@ export function shouldPrefetchImageUrls({
     return false;
   }
   switch (provider) {
+    case ANTHROPIC:
+      return true;
     case GOOGLE_VERTEX_AI:
       return getModelAndProvider(model).provider === 'anthropic';
     case BEDROCK:
