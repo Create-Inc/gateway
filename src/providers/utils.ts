@@ -125,6 +125,9 @@ const imageURLToBase64 = async (url: string) => {
       const arrayBuffer = await response.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
       const contentType = response.headers.get('content-type')?.split(';')[0];
+      if (!contentType) {
+        throw new Error('Missing content type in response');
+      }
       const base64String = buffer.toString('base64');
       const prefix = `data:${contentType};base64,`;
       return { prefix, base64String };
