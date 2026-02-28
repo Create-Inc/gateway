@@ -109,11 +109,7 @@ export function getFakeId() {
   return ('portkey-' + crypto.randomUUID()).slice(0, 40);
 }
 
-// Fetches an image URL and converts it to a base64 data URI.
-// Uses retry() which guarantees a binary outcome: resolves with { prefix, base64String }
-// or rejects. It will never resolve with null/undefined, so callers can safely destructure.
 const imageURLToBase64 = async (url: string) => {
-  // Uploadcare CDN URLs need `-/preview/` appended to return a rasterized image
   const urlWithTransformation = url.startsWith('https://ucarecdn.com/')
     ? urljoin(url, '-/preview/')
     : url;
@@ -129,8 +125,6 @@ const imageURLToBase64 = async (url: string) => {
       const arrayBuffer = await response.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
       const contentType = response.headers.get('content-type')?.split(';')[0];
-      // Without a valid content-type, the data URI would be `data:undefined;base64,...`
-      // which produces a corrupt image the model can't parse.
       if (!contentType) {
         throw new Error('Missing content type in response');
       }
@@ -149,12 +143,6 @@ const imageURLToBase64 = async (url: string) => {
   );
 };
 
-// Converts all image_url content blocks in messages from remote URLs to inline base64 data URIs.
-// This is necessary because some providers (Bedrock, Vertex AI) require base64, and others
-// (Anthropic direct) technically support URL-based images but fail silently when fetching
-// Uploadcare CDN URLs — causing the model to hallucinate about screenshot content.
-// On failure, replaces the image with descriptive text so the model knows an image was
-// intended rather than silently receiving nothing and hallucinating.
 export async function prefetchImageUrls(
   messages: Message[]
 ): Promise<Message[]> {
@@ -174,8 +162,6 @@ export async function prefetchImageUrls(
             `Failed to prefetch image after retries: ${item.image_url.url}`,
             error
           );
-          // Replace with text so the model knows an image was intended but failed,
-          // rather than receiving nothing and hallucinating about what it should see.
           content[i] = {
             type: 'text',
             text: `[Image failed to load: ${item.image_url.url}]`,
@@ -199,10 +185,10 @@ export function shouldPrefetchImageUrls({
   if (!messages || messages.length === 0 || !model) {
     return false;
   }
-  // Providers that can't reliably fetch remote image URLs need prefetching:
-  // - Anthropic direct: supports source.type='url' but silently fails on Uploadcare CDN URLs
-  // - Vertex AI (Anthropic models): uses rawPredict which requires base64
-  // - Bedrock: only accepts base64-encoded images
+  // Anthropic direct technically supports source.type='url', but it intermittently
+  // fails to fetch Uploadcare CDN URLs — when it does, the model receives no image
+  // and hallucinates about what the screenshot shows. Prefetching to base64 makes
+  // image delivery deterministic for all three providers.
   switch (provider) {
     case ANTHROPIC:
       return true;
