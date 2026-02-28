@@ -7,7 +7,7 @@ import {
   finishReasonMap,
 } from './utils/finishReasonMap';
 import { ContentType, Message } from '../types/requestBody';
-import { BEDROCK, GOOGLE_VERTEX_AI } from '../globals';
+import { ANTHROPIC, BEDROCK, GOOGLE_VERTEX_AI } from '../globals';
 import { getModelAndProvider } from './google-vertex-ai/utils';
 
 export const generateInvalidProviderResponseError: (
@@ -125,6 +125,9 @@ const imageURLToBase64 = async (url: string) => {
       const arrayBuffer = await response.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
       const contentType = response.headers.get('content-type')?.split(';')[0];
+      if (!contentType) {
+        throw new Error('Missing content type in response');
+      }
       const base64String = buffer.toString('base64');
       const prefix = `data:${contentType};base64,`;
       return { prefix, base64String };
@@ -182,7 +185,13 @@ export function shouldPrefetchImageUrls({
   if (!messages || messages.length === 0 || !model) {
     return false;
   }
+  // Anthropic direct technically supports source.type='url', but it intermittently
+  // fails to fetch Uploadcare CDN URLs — when it does, the model receives no image
+  // and hallucinates about what the screenshot shows. Prefetching to base64 makes
+  // image delivery deterministic for all three providers.
   switch (provider) {
+    case ANTHROPIC:
+      return true;
     case GOOGLE_VERTEX_AI:
       return getModelAndProvider(model).provider === 'anthropic';
     case BEDROCK:
