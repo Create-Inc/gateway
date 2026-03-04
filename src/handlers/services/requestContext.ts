@@ -221,6 +221,67 @@ export class RequestContext {
       this.requestHeaders,
       this.providerOption
     );
+    this.logImageContentParts();
+  }
+
+  private logImageContentParts() {
+    const body = this.transformedRequestBody;
+    if (!body || typeof body !== 'object' || !('messages' in body)) {
+      return;
+    }
+    const messages = (body as Record<string, unknown>).messages;
+    if (!Array.isArray(messages)) {
+      return;
+    }
+    const imageSummary: Array<{
+      messageIndex: number;
+      role: string;
+      type: string;
+      sourceType?: string;
+      mediaType?: string;
+      dataLength?: number;
+    }> = [];
+    for (let i = 0; i < messages.length; i++) {
+      const msg = messages[i];
+      if (!msg?.content || !Array.isArray(msg.content)) {
+        continue;
+      }
+      for (const part of msg.content) {
+        if (part?.type === 'image' && part?.source) {
+          imageSummary.push({
+            messageIndex: i,
+            role: msg.role,
+            type: part.type,
+            sourceType: part.source.type,
+            mediaType: part.source.media_type,
+            dataLength:
+              part.source.type === 'base64'
+                ? part.source.data?.length
+                : undefined,
+          });
+        } else if (part?.type === 'image_url' && part?.image_url) {
+          const url = part.image_url.url ?? '';
+          imageSummary.push({
+            messageIndex: i,
+            role: msg.role,
+            type: part.type,
+            sourceType: url.startsWith('data:') ? 'base64-datauri' : 'url',
+            dataLength: url.length,
+          });
+        }
+      }
+    }
+    if (imageSummary.length > 0) {
+      console.log(
+        JSON.stringify({
+          msg: 'Image content parts in transformed request',
+          provider: this.provider,
+          endpoint: this.endpoint,
+          imageCount: imageSummary.length,
+          images: imageSummary,
+        })
+      );
+    }
   }
 
   get requestOptions(): any[] {
