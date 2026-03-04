@@ -191,8 +191,16 @@ const transformAndAppendImageContentItem = (
   item: ContentType,
   transformedMessage: AnthropicMessage
 ) => {
-  if (!item?.image_url?.url || typeof transformedMessage.content === 'string')
+  if (!item?.image_url?.url || typeof transformedMessage.content === 'string') {
+    console.log(
+      JSON.stringify({
+        msg: 'transformAndAppendImageContentItem: skipped',
+        hasUrl: !!item?.image_url?.url,
+        contentIsString: typeof transformedMessage.content === 'string',
+      })
+    );
     return;
+  }
   const url = item.image_url.url;
   const isBase64EncodedImage = url.startsWith('data:');
   if (!isBase64EncodedImage) {
@@ -203,6 +211,12 @@ const transformAndAppendImageContentItem = (
         url,
       },
     });
+    console.log(
+      JSON.stringify({
+        msg: 'transformAndAppendImageContentItem: added url image',
+        urlPrefix: url.substring(0, 60),
+      })
+    );
   } else {
     const parts = url.split(';');
     if (parts.length === 2) {
@@ -223,7 +237,31 @@ const transformAndAppendImageContentItem = (
             cache_control: { type: 'ephemeral' },
           }),
         });
+        console.log(
+          JSON.stringify({
+            msg: 'transformAndAppendImageContentItem: added base64 image',
+            mediaType,
+            dataLength: base64Image.length,
+          })
+        );
+      } else {
+        console.log(
+          JSON.stringify({
+            msg: 'transformAndAppendImageContentItem: base64 parse failed',
+            partsLength: parts.length,
+            mediaTypePartsLength: mediaTypeParts.length,
+            hasBase64Image: !!base64Image,
+          })
+        );
       }
+    } else {
+      console.log(
+        JSON.stringify({
+          msg: 'transformAndAppendImageContentItem: semicolon split unexpected',
+          partsLength: parts.length,
+          urlPrefix: url.substring(0, 60),
+        })
+      );
     }
   }
 };
