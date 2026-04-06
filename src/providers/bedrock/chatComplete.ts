@@ -67,8 +67,9 @@ export interface BedrockConverseAnthropicChatCompletionsParams
   user?: string;
   thinking?: {
     type: string;
-    budget_tokens: number;
+    budget_tokens?: number;
   };
+  effort?: string;
   anthropic_beta?: string | string[];
 }
 
