@@ -348,9 +348,16 @@ export interface ThinkingConfigDisabled {
   type: 'disabled';
 }
 
+export interface ThinkingConfigAdaptive {
+  budget_tokens?: number;
+
+  type: 'adaptive';
+}
+
 export type ThinkingConfigParam =
   | ThinkingConfigEnabled
-  | ThinkingConfigDisabled;
+  | ThinkingConfigDisabled
+  | ThinkingConfigAdaptive;
 
 /**
  * The model will use any available tools.
@@ -633,6 +640,11 @@ export interface MessageCreateParamsBase {
    * Configuration for enabling Claude's extended thinking.
    */
   thinking?: ThinkingConfigParam;
+
+  /**
+   * Controls how much effort the model puts into reasoning.
+   */
+  effort?: 'high' | 'medium' | 'low';
 
   /**
    * How the model should use the provided tools. The model can use a specific tool,

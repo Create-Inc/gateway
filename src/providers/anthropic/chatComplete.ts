@@ -495,6 +495,10 @@ export const AnthropicChatCompleteConfig: ProviderConfig = {
     param: 'thinking',
     required: false,
   },
+  effort: {
+    param: 'effort',
+    required: false,
+  },
 };
 
 interface AnthorpicTextContentItem {
