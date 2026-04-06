@@ -435,8 +435,9 @@ export interface Params {
   anthropic_version?: string;
   thinking?: {
     type?: string;
-    budget_tokens: number;
+    budget_tokens?: number;
   };
+  effort?: string;
   // Embeddings specific
   dimensions?: number;
   parameters?: any;
