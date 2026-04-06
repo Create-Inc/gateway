@@ -34,9 +34,6 @@ export const transformAnthropicAdditionalModelRequestFields = (
   if (params['thinking']) {
     additionalModelRequestFields['thinking'] = params['thinking'];
   }
-  if (params['effort']) {
-    additionalModelRequestFields['effort'] = params['effort'];
-  }
   if (params['anthropic_beta']) {
     if (typeof params['anthropic_beta'] === 'string') {
       additionalModelRequestFields['anthropic_beta'] = [
