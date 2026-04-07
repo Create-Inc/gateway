@@ -66,6 +66,11 @@ import { handler as walledaiguardrails } from './walledai/walledprotect';
 import { handler as defaultregexReplace } from './default/regexReplace';
 import { handler as defaultallowedRequestTypes } from './default/allowedRequestTypes';
 import { handler as javelinguardrails } from './javelin/guardrails';
+import { handler as defaultnotNull } from './default/notNull';
+import { handler as qualifireContentModeration } from './qualifire/contentModeration';
+import { handler as f5GuardrailsScan } from './f5-guardrails/scan';
+import { handler as azureShieldPrompt } from './azure/shieldPrompt';
+import { handler as azureProtectedMaterial } from './azure/protectedMaterial';
 
 export const plugins = {
   default: {
@@ -90,6 +95,7 @@ export const plugins = {
     addPrefix: defaultaddPrefix,
     regexReplace: defaultregexReplace,
     allowedRequestTypes: defaultallowedRequestTypes,
+    notNull: defaultnotNull,
   },
   qualifire: {
     dangerousContent: qualifireDangerousContent,
@@ -160,6 +166,8 @@ export const plugins = {
   azure: {
     pii: azurePii,
     contentSafety: azureContentSafety,
+    shieldPrompt: azureShieldPrompt,
+    protectedMaterial: azureProtectedMaterial,
   },
   promptsecurity: {
     protectPrompt: promptSecurityProtectPrompt,
@@ -173,5 +181,8 @@ export const plugins = {
   },
   javelin: {
     guardrails: javelinguardrails,
+  },
+  'f5-guardrails': {
+    scan: f5GuardrailsScan,
   },
 };

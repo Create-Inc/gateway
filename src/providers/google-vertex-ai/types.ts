@@ -1,3 +1,4 @@
+import { Params } from '../../types/requestBody';
 import { ChatCompletionResponse, GroundingMetadata } from '../types';
 
 export interface GoogleErrorResponse {
@@ -24,6 +25,7 @@ export interface GoogleResponseCandidate {
         mimeType: string;
         data: string;
       };
+      thoughtSignature?: string;
     }[];
   };
   logprobsResult?: {
@@ -254,6 +256,31 @@ export interface GoogleFinetuneRecord {
       epochCount: number;
       adapterSize: number;
     };
+  };
+}
+
+export enum VERTEX_GEMINI_GENERATE_CONTENT_FINISH_REASON {
+  FINISH_REASON_UNSPECIFIED = 'FINISH_REASON_UNSPECIFIED',
+  STOP = 'STOP',
+  MAX_TOKENS = 'MAX_TOKENS',
+  SAFETY = 'SAFETY',
+  RECITATION = 'RECITATION',
+  OTHER = 'OTHER',
+  BLOCKLIST = 'BLOCKLIST',
+  PROHIBITED_CONTENT = 'PROHIBITED_CONTENT',
+  SPII = 'SPII',
+}
+
+export enum VERTEX_MODALITY {
+  MODALITY_UNSPECIFIED = 'MODALITY_UNSPECIFIED',
+  TEXT = 'TEXT',
+  IMAGE = 'IMAGE',
+  AUDIO = 'AUDIO',
+}
+export interface PortkeyGeminiParams extends Params {
+  image_config?: {
+    aspect_ratio: string; // '16:9', '4:3', '1:1'
+    image_size: string; // '2K', '4K', '8K'
   };
 }
 
