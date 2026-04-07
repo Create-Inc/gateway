@@ -1,9 +1,14 @@
+import retry from 'async-retry';
+import urljoin from 'url-join';
 import { ANTHROPIC_STOP_REASON } from './anthropic/types';
 import { FINISH_REASON, ErrorResponse, PROVIDER_FINISH_REASON } from './types';
 import {
   AnthropicFinishReasonMap,
   finishReasonMap,
 } from './utils/finishReasonMap';
+import { ContentType, Message } from '../types/requestBody';
+import { ANTHROPIC, BEDROCK, GOOGLE_VERTEX_AI } from '../globals';
+import { getModelAndProvider } from './google-vertex-ai/utils';
 
 export const generateInvalidProviderResponseError: (
   response: Record<string, any>,
@@ -98,3 +103,100 @@ export const transformToAnthropicStopReason = (
   }
   return transformedFinishReason;
 };
+
+export function getFakeId() {
+  // Some providers have a max length for the id, so we need to limit it
+  return ('portkey-' + crypto.randomUUID()).slice(0, 40);
+}
+
+const imageURLToBase64 = async (url: string) => {
+  const urlWithTransformation = url.startsWith('https://ucarecdn.com/')
+    ? urljoin(url, '-/preview/')
+    : url;
+
+  return retry(
+    async () => {
+      const response = await fetch(urlWithTransformation, {
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!response.ok) {
+        throw new Error(`Failed to fetch image. Status: ${response.status}`);
+      }
+      const arrayBuffer = await response.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      const contentType = response.headers.get('content-type')?.split(';')[0];
+      if (!contentType) {
+        throw new Error('Missing content type in response');
+      }
+      const base64String = buffer.toString('base64');
+      const prefix = `data:${contentType};base64,`;
+      return { prefix, base64String };
+    },
+    {
+      retries: 3,
+      onRetry: (error, attempt) => {
+        console.warn(
+          `Image prefetch attempt ${attempt} failed for ${url}: ${error.message}`
+        );
+      },
+    }
+  );
+};
+
+export async function prefetchImageUrls(
+  messages: Message[]
+): Promise<Message[]> {
+  for (const msg of messages) {
+    const content: ContentType[] =
+      msg.content_blocks ?? (Array.isArray(msg.content) ? msg.content : []);
+    for (let i = 0; i < content.length; i++) {
+      const item = content[i];
+      if (item.type === 'image_url' && item.image_url?.url) {
+        try {
+          const { prefix, base64String } = await imageURLToBase64(
+            item.image_url.url
+          );
+          item.image_url.url = `${prefix}${base64String}`;
+        } catch (error) {
+          console.error(
+            `Failed to prefetch image after retries: ${item.image_url.url}`,
+            error
+          );
+          content[i] = {
+            type: 'text',
+            text: `[Image failed to load: ${item.image_url.url}]`,
+          } as ContentType;
+        }
+      }
+    }
+  }
+  return messages;
+}
+
+export function shouldPrefetchImageUrls({
+  messages,
+  model,
+  provider,
+}: {
+  messages?: Message[];
+  model?: string;
+  provider: string;
+}) {
+  if (!messages || messages.length === 0 || !model) {
+    return false;
+  }
+  // Anthropic direct technically supports source.type='url', but it intermittently
+  // fails to fetch Uploadcare CDN URLs — when it does, the model receives no image
+  // and hallucinates about what the screenshot shows. Prefetching to base64 makes
+  // image delivery deterministic for all three providers.
+  switch (provider) {
+    case ANTHROPIC:
+      return true;
+    case GOOGLE_VERTEX_AI:
+      return getModelAndProvider(model).provider === 'anthropic';
+    case BEDROCK:
+      return true;
+    default:
+      return false;
+  }
+}

@@ -270,7 +270,6 @@ export async function afterRequestHookHandler(
           ...response,
           status: 246,
           statusText: 'Hooks failed',
-          headers: response.headers,
         });
       }
       return response;

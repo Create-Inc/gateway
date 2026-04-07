@@ -274,14 +274,24 @@ const getMessageContent = (message: Message) => {
 
   // If message is an array of objects, handle text content, tool calls, tool results, this would be much cleaner if portkeys chat create object were a union type
   message.tool_calls?.forEach((toolCall: ToolCall) => {
+    let input;
+    try {
+      input = JSON.parse(toolCall.function.arguments);
+      if (typeof input !== 'object' || Array.isArray(input)) {
+        input = {};
+      }
+    } catch (error) {
+      input = {};
+    }
     out.push({
       toolUse: {
         name: toolCall.function.name,
-        input: JSON.parse(toolCall.function.arguments),
+        input,
         toolUseId: toolCall.id,
       },
     });
   });
+
   return out;
 };
 
@@ -338,6 +348,11 @@ export const BedrockConverseChatCompleteConfig: ProviderConfig = {
           },
           []
         );
+        if (params.response_format?.type === 'json_schema') {
+          systemMessages.push({
+            text: `Here is the JSON Schema that defines the structure for this conversation. You must follow this schema strictly and only return the JSON object:\n\n${JSON.stringify(params.response_format.json_schema)}`,
+          });
+        }
         if (!systemMessages.length) return;
         return systemMessages;
       },

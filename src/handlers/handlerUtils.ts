@@ -1,3 +1,4 @@
+import * as Sentry from '@sentry/node';
 import { Context } from 'hono';
 import {
   AZURE_OPEN_AI,
@@ -28,6 +29,7 @@ import { ConditionalRouter } from '../services/conditionalRouter';
 import { RouterError } from '../errors/RouterError';
 import { GatewayError } from '../errors/GatewayError';
 import { HookType } from '../middlewares/hooks/types';
+import { prefetchImageUrls, shouldPrefetchImageUrls } from '../providers/utils';
 
 // Services
 import { CacheResponseObject, CacheService } from './services/cacheService';
@@ -303,6 +305,19 @@ export async function tryPost(
     method,
     currentIndex as number
   );
+  const messages = requestContext.params.messages;
+  const model = requestContext.params.model;
+  if (
+    messages &&
+    shouldPrefetchImageUrls({
+      messages,
+      provider: providerOption.provider,
+      model,
+    })
+  ) {
+    console.log('Prefetching image URLs for messages');
+    requestContext.params.messages = await prefetchImageUrls(messages);
+  }
   const hooksService = new HooksService(requestContext);
   const providerContext = new ProviderContext(requestContext.provider);
   const logsService = new LogsService(c);
@@ -657,7 +672,15 @@ export async function tryTargetsRecursively(
     }
   }
 
-  let response;
+  let response: Response | null = null;
+  Sentry.setTag('provider', currentTarget.provider);
+  Sentry.setTag('strategyMode', strategyMode);
+  Sentry.setTag('fn', fn);
+  Sentry.setContext('overrideParams', currentTarget.overrideParams);
+  Sentry.setContext('retry', currentTarget.retry);
+  if ('model' in request) {
+    Sentry.setContext('request', { ...request });
+  }
 
   switch (strategyMode) {
     case StrategyModes.FALLBACK:
@@ -799,15 +822,10 @@ export async function tryTargetsRecursively(
           );
         }
       } catch (error: any) {
+        Sentry.captureException(error);
         // tryPost always returns a Response.
         // TypeError will check for all unhandled exceptions.
         // GatewayError will check for all handled exceptions which cannot allow the request to proceed.
-        console.error(
-          'tryTargetsRecursively error: ',
-          error.message,
-          error.cause,
-          error.stack
-        );
         const errorMessage =
           error instanceof GatewayError
             ? error.message
@@ -815,7 +833,7 @@ export async function tryTargetsRecursively(
         response = new Response(
           JSON.stringify({
             status: 'failure',
-            message: errorMessage,
+            error: errorMessage,
           }),
           {
             status: error instanceof GatewayError ? error.status : 500,
@@ -829,8 +847,11 @@ export async function tryTargetsRecursively(
       }
       break;
   }
+  if (!response) {
+    throw new Error('Could not create response');
+  }
 
-  return response!;
+  return response;
 }
 
 export function constructConfigFromRequestHeaders(

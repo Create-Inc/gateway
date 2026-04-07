@@ -1,3 +1,4 @@
+import * as Sentry from '@sentry/node';
 import {
   AZURE_OPEN_AI,
   BEDROCK,
@@ -15,6 +16,7 @@ import { OpenAICompleteResponse } from '../providers/openai/complete';
 import { endpointStrings } from '../providers/types';
 import { Params } from '../types/requestBody';
 import { getStreamModeSplitPattern, type SplitPatternType } from '../utils';
+import { protectionManager } from '../utils/ecs/protection';
 
 function readUInt32BE(buffer: Uint8Array, offset: number) {
   return (
@@ -337,6 +339,7 @@ export function handleStreamingMode(
           strictOpenAiCompliance,
           gatewayRequest
         )) {
+          await writer.ready;
           await writer.write(encoder.encode(chunk));
         }
       } catch (error) {
@@ -352,7 +355,17 @@ export function handleStreamingMode(
           );
         }
       }
-    })();
+    })()
+      .catch((error) => {
+        Sentry.captureException(error, {
+          extra: {
+            requestURL,
+          },
+        });
+      })
+      .finally(() => {
+        protectionManager.releaseProtection();
+      });
   } else {
     (async () => {
       try {
@@ -371,6 +384,7 @@ export function handleStreamingMode(
           strictOpenAiCompliance,
           gatewayRequest
         )) {
+          await writer.ready;
           await writer.write(encoder.encode(chunk));
         }
       } catch (error) {
@@ -386,7 +400,17 @@ export function handleStreamingMode(
           );
         }
       }
-    })();
+    })()
+      .catch((error) => {
+        Sentry.captureException(error, {
+          extra: {
+            requestURL,
+          },
+        });
+      })
+      .finally(() => {
+        protectionManager.releaseProtection();
+      });
   }
 
   // Convert GEMINI/COHERE json stream to text/event-stream for non-proxy calls

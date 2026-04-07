@@ -46,6 +46,7 @@
     "@hono/node-server": "^1.3.3",
     "@hono/node-ws": "^1.2.0",
     "@portkey-ai/mustache": "^2.1.3",
+    "@sentry/node": "^9.12.0",
     "@smithy/signature-v4": "^2.1.1",
     "@types/mustache": "^4.2.5",
     "async-retry": "^1.3.3",
@@ -54,6 +55,8 @@
     "hono": "^4.9.7",
     "jose": "^6.0.11",
     "patch-package": "^8.0.1",
+    "serialize-error": "^8.0.1",
+    "url-join": "^5.0.0",
     "ws": "^8.18.0",
     "zod": "^3.22.4"
   },

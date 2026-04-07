@@ -4,6 +4,13 @@ import { getRuntimeKey } from 'hono/adapter';
 let logId = 0;
 const MAX_RESPONSE_LENGTH = 100000;
 
+// Log level control via environment variable
+// Set LOG_LEVEL=verbose for detailed console logs
+// Set LOG_LEVEL=minimal for basic logs only
+// Set LOG_LEVEL=silent to disable console logs
+// Default to verbose logging if not set or set to an invalid value
+const LOG_LEVEL = process.env.LOG_LEVEL || 'verbose';
+
 // Map to store all connected log clients
 const logClients: Map<string | number, any> = new Map();
 
@@ -56,32 +63,96 @@ async function processLog(c: Context, start: number) {
     return;
   }
 
+  // Capture the final response body sent to the client
+  // Note: requestOptionsArray is ordered chronologically (first attempt at [0], last at [-1])
+  // The last element contains the final successful (or failed) response
+  const lastAttemptIndex = requestOptionsArray.length - 1;
+  let finalClientResponse = null;
   try {
-    const response = requestOptionsArray[0].requestParams.stream
+    finalClientResponse = requestOptionsArray[lastAttemptIndex]
+      .finalUntransformedRequest.body.stream
       ? { message: 'The response was a stream.' }
       : await c.res.clone().json();
 
-    const responseString = JSON.stringify(response);
+    const responseString = JSON.stringify(finalClientResponse);
     if (responseString.length > MAX_RESPONSE_LENGTH) {
-      requestOptionsArray[0].response =
+      requestOptionsArray[lastAttemptIndex].response =
         responseString.substring(0, MAX_RESPONSE_LENGTH) + '...';
     } else {
-      requestOptionsArray[0].response = response;
+      requestOptionsArray[lastAttemptIndex].response = finalClientResponse;
     }
   } catch (error) {
     console.error('Error processing log:', error);
   }
 
-  await broadcastLog(
-    JSON.stringify({
-      time: new Date().toLocaleString(),
-      method: c.req.method,
-      endpoint: c.req.url.split(':8787')[1],
-      status: c.res.status,
-      duration: ms,
-      requestOptions: requestOptionsArray,
-    })
-  );
+  const now = new Date();
+  const timestamp = now.toLocaleString('en-US', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    timeZoneName: 'short',
+  });
+
+  // Extract the endpoint path from the URL
+  const url = new URL(c.req.url);
+  const endpoint = url.pathname + url.search;
+
+  const logData = {
+    time: timestamp,
+    method: c.req.method,
+    endpoint: endpoint,
+    status: c.res.status,
+    duration: ms,
+    requestOptions: requestOptionsArray,
+  };
+
+  // Log to console for STDOUT visibility based on LOG_LEVEL
+  if (LOG_LEVEL !== 'silent') {
+    if (LOG_LEVEL === 'minimal') {
+      // Minimal logging: just method, endpoint, status, duration
+      console.log(
+        `[${logData.time}] ${logData.method} ${logData.endpoint} - ${logData.status} (${ms}ms)`
+      );
+    } else {
+      // Verbose logging: structured JSON for CloudWatch
+      const structuredLog = {
+        timestamp: logData.time,
+        timestampNanos: now.getTime() * 1_000_000,
+        request: {
+          method: logData.method,
+          endpoint: logData.endpoint,
+          // Client request body is the same across all attempts, so we can use any element
+          clientRequestBody:
+            requestOptionsArray[0]?.finalUntransformedRequest?.body || null,
+        },
+        response: {
+          status: logData.status,
+          durationMs: ms,
+          body: finalClientResponse || null,
+        },
+        // All provider attempts for this single client request (retries, fallbacks, load balancing)
+        // Ordered chronologically: [0] is first attempt, last element is final attempt
+        providerAttempts: requestOptionsArray.map(
+          (option: any, index: number) => ({
+            attemptNumber: index + 1,
+            totalAttempts: requestOptionsArray.length,
+            provider: option.providerOptions?.provider || 'N/A',
+            requestURL: option.providerOptions?.requestURL || 'N/A',
+            requestParams: option.requestParams || null,
+            providerResponse: option.response || null,
+          })
+        ),
+      };
+
+      console.log(JSON.stringify(structuredLog));
+    }
+  }
+
+  // Broadcast to SSE clients
+  await broadcastLog(JSON.stringify(logData));
 }
 
 export const logHandler = () => {

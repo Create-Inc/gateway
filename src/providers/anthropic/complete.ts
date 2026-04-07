@@ -86,8 +86,7 @@ export const AnthropicCompleteResponseTransform: (
 ) => {
   if (responseStatus !== 200) {
     const errorResposne = AnthropicErrorResponseTransform(
-      response as AnthropicErrorResponse,
-      ANTHROPIC
+      response as AnthropicErrorResponse
     );
     if (errorResposne) return errorResposne;
   }

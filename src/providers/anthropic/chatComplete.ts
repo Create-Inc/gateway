@@ -1,29 +1,29 @@
 import { fileExtensionMimeTypeMap } from '../../globals';
 import {
-  Params,
-  Message,
-  ContentType,
+  type Params,
+  type Message,
+  type ContentType,
   SYSTEM_MESSAGE_ROLES,
-  PromptCache,
+  type PromptCache,
   ToolChoiceObject,
 } from '../../types/requestBody';
-import {
+import type {
   ChatCompletionResponse,
   ErrorResponse,
   ProviderConfig,
 } from '../types';
-import {
+import type {
   AnthropicErrorObject,
   AnthropicErrorResponse,
   AnthropicStreamState,
   ANTHROPIC_STOP_REASON,
 } from './types';
 import {
-  generateErrorResponse,
   generateInvalidProviderResponseError,
   transformFinishReason,
 } from '../utils';
 import { AnthropicErrorResponseTransform } from './utils';
+import { transformAnthropicUsageMetadata } from '../utils/transformAnthropicUsageMetadata';
 
 // TODO: this configuration does not enforce the maximum token limit for the input parameter. If you want to enforce this, you might need to add a custom validation function or a max property to the ParameterConfig interface, and then use it in the input configuration. However, this might be complex because the token count is not a simple length check, but depends on the specific tokenization method used by the model.
 
@@ -162,13 +162,20 @@ const transformAssistantMessage = (msg: Message): AnthropicMessage => {
   }
   if (containsToolCalls) {
     msg.tool_calls.forEach((toolCall: any) => {
+      let input;
+      try {
+        input = JSON.parse(toolCall.function.arguments);
+        if (typeof input !== 'object' || Array.isArray(input)) {
+          input = {};
+        }
+      } catch (error) {
+        input = {};
+      }
       transformedContent.push({
         type: 'tool_use',
         name: toolCall.function.name,
         id: toolCall.id,
-        input: toolCall.function.arguments?.length
-          ? JSON.parse(toolCall.function.arguments)
-          : {},
+        input,
         ...(toolCall.cache_control && {
           cache_control: toolCall.cache_control,
         }),
@@ -199,8 +206,16 @@ const transformAndAppendImageContentItem = (
   item: ContentType,
   transformedMessage: AnthropicMessage
 ) => {
-  if (!item?.image_url?.url || typeof transformedMessage.content === 'string')
+  if (!item?.image_url?.url || typeof transformedMessage.content === 'string') {
+    console.log(
+      JSON.stringify({
+        msg: 'transformAndAppendImageContentItem: skipped',
+        hasUrl: !!item?.image_url?.url,
+        contentIsString: typeof transformedMessage.content === 'string',
+      })
+    );
     return;
+  }
   const url = item.image_url.url;
   const isBase64EncodedImage = url.startsWith('data:');
   if (!isBase64EncodedImage) {
@@ -211,6 +226,12 @@ const transformAndAppendImageContentItem = (
         url,
       },
     });
+    console.log(
+      JSON.stringify({
+        msg: 'transformAndAppendImageContentItem: added url image',
+        urlPrefix: url.substring(0, 60),
+      })
+    );
   } else {
     const parts = url.split(';');
     if (parts.length === 2) {
@@ -231,7 +252,31 @@ const transformAndAppendImageContentItem = (
             cache_control: { type: 'ephemeral' },
           }),
         });
+        console.log(
+          JSON.stringify({
+            msg: 'transformAndAppendImageContentItem: added base64 image',
+            mediaType,
+            dataLength: base64Image.length,
+          })
+        );
+      } else {
+        console.log(
+          JSON.stringify({
+            msg: 'transformAndAppendImageContentItem: base64 parse failed',
+            partsLength: parts.length,
+            mediaTypePartsLength: mediaTypeParts.length,
+            hasBase64Image: !!base64Image,
+          })
+        );
       }
+    } else {
+      console.log(
+        JSON.stringify({
+          msg: 'transformAndAppendImageContentItem: semicolon split unexpected',
+          partsLength: parts.length,
+          urlPrefix: url.substring(0, 60),
+        })
+      );
     }
   }
 };
@@ -277,6 +322,7 @@ export const AnthropicChatCompleteConfig: ProviderConfig = {
       required: true,
       transform: (params: Params) => {
         let messages: AnthropicMessage[] = [];
+
         // Transform the chat messages into a simple prompt
         if (!!params.messages) {
           params.messages.forEach((msg: Message & PromptCache) => {
@@ -329,6 +375,16 @@ export const AnthropicChatCompleteConfig: ProviderConfig = {
       required: false,
       transform: (params: Params) => {
         let systemMessages: AnthropicMessageContentItem[] = [];
+
+        if (
+          params.response_format &&
+          params.response_format.type === 'json_schema'
+        ) {
+          systemMessages.push({
+            type: 'text',
+            text: `Here is the JSON Schema that defines the structure for this conversation. You must follow this schema strictly and only return the JSON object:\n\n${JSON.stringify(params.response_format.json_schema)}`,
+          });
+        }
         // Transform the chat messages into a simple prompt
         if (!!params.messages) {
           params.messages.forEach((msg: Message & PromptCache) => {
@@ -535,6 +591,7 @@ export interface AnthropicChatCompleteStreamResponse {
   error?: AnthropicErrorObject;
 }
 
+
 export const getAnthropicChatCompleteResponseTransform = (provider: string) => {
   const AnthropicChatCompleteResponseTransform: (
     response: AnthropicChatCompleteResponse | AnthropicErrorResponse,
@@ -552,16 +609,6 @@ export const getAnthropicChatCompleteResponseTransform = (provider: string) => {
     }
 
     if ('content' in response) {
-      const {
-        input_tokens = 0,
-        output_tokens = 0,
-        cache_creation_input_tokens,
-        cache_read_input_tokens,
-      } = response?.usage;
-
-      const shouldSendCacheUsage =
-        cache_creation_input_tokens || cache_read_input_tokens;
-
       let content: string = '';
       response.content.forEach((item) => {
         if (item.type === 'text') {
@@ -609,22 +656,7 @@ export const getAnthropicChatCompleteResponseTransform = (provider: string) => {
             ),
           },
         ],
-        usage: {
-          prompt_tokens: input_tokens,
-          completion_tokens: output_tokens,
-          total_tokens:
-            input_tokens +
-            output_tokens +
-            (cache_creation_input_tokens ?? 0) +
-            (cache_read_input_tokens ?? 0),
-          prompt_tokens_details: {
-            cached_tokens: cache_read_input_tokens ?? 0,
-          },
-          ...(shouldSendCacheUsage && {
-            cache_read_input_tokens: cache_read_input_tokens,
-            cache_creation_input_tokens: cache_creation_input_tokens,
-          }),
-        },
+        usage: transformAnthropicUsageMetadata(response.usage),
       };
     }
 
@@ -692,21 +724,11 @@ export const getAnthropicStreamChunkTransform = (provider: string) => {
       );
     }
 
-    const shouldSendCacheUsage =
-      parsedChunk.message?.usage?.cache_read_input_tokens ||
-      parsedChunk.message?.usage?.cache_creation_input_tokens;
-
     if (parsedChunk.type === 'message_start' && parsedChunk.message?.usage) {
       streamState.model = parsedChunk?.message?.model ?? '';
-      streamState.usage = {
-        prompt_tokens: parsedChunk.message?.usage?.input_tokens,
-        ...(shouldSendCacheUsage && {
-          cache_read_input_tokens:
-            parsedChunk.message?.usage?.cache_read_input_tokens,
-          cache_creation_input_tokens:
-            parsedChunk.message?.usage?.cache_creation_input_tokens,
-        }),
-      };
+      streamState.usage = transformAnthropicUsageMetadata(
+        parsedChunk.message?.usage
+      );
       return (
         `data: ${JSON.stringify({
           id: fallbackId,
@@ -731,11 +753,6 @@ export const getAnthropicStreamChunkTransform = (provider: string) => {
 
     // final chunk
     if (parsedChunk.type === 'message_delta' && parsedChunk.usage) {
-      const totalTokens =
-        (streamState?.usage?.prompt_tokens ?? 0) +
-        (streamState?.usage?.cache_creation_input_tokens ?? 0) +
-        (streamState?.usage?.cache_read_input_tokens ?? 0) +
-        (parsedChunk.usage.output_tokens ?? 0);
       return (
         `data: ${JSON.stringify({
           id: fallbackId,
@@ -753,14 +770,7 @@ export const getAnthropicStreamChunkTransform = (provider: string) => {
               ),
             },
           ],
-          usage: {
-            ...streamState.usage,
-            completion_tokens: parsedChunk.usage?.output_tokens,
-            total_tokens: totalTokens,
-            prompt_tokens_details: {
-              cached_tokens: streamState.usage?.cache_read_input_tokens ?? 0,
-            },
-          },
+          usage: transformAnthropicUsageMetadata(parsedChunk.usage),
         })}` + '\n\n'
       );
     }

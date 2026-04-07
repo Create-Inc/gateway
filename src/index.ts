@@ -4,17 +4,22 @@
  * @module index
  */
 
+import './instrument';
+import * as Sentry from '@sentry/node';
 import { Context, Hono } from 'hono';
 import { prettyJSON } from 'hono/pretty-json';
 import { HTTPException } from 'hono/http-exception';
 import { compress } from 'hono/compress';
 import { getRuntimeKey } from 'hono/adapter';
+import { logger as honoLogger } from 'hono/logger';
+
 // import { env } from 'hono/adapter' // Have to set this up for multi-environment deployment
 
 // Middlewares
 import { requestValidator } from './middlewares/requestValidator';
 import { hooks } from './middlewares/hooks';
 import { memoryCache } from './middlewares/cache';
+import { protection } from './utils/ecs/protection';
 
 // Handlers
 import { proxyHandler } from './handlers/proxyHandler';
@@ -96,7 +101,9 @@ app.use('*', prettyJSON());
 
 // Use logger middleware for all routes
 if (getRuntimeKey() === 'node') {
+  app.use(honoLogger()); // Simple logs: <-- POST /v1/endpoint
   app.use(logHandler());
+  app.use(protection());
 }
 
 // Support the /v1/models endpoint
@@ -121,6 +128,7 @@ app.notFound((c) => c.json({ message: 'Not Found', ok: false }, 404));
  * Otherwise, logs the error and returns a JSON response with status code 500.
  */
 app.onError((err, c) => {
+  Sentry.captureException(err);
   logger.error('Global Error Handler: ', err.message, err.cause, err.stack);
   if (err instanceof HTTPException) {
     return err.getResponse();

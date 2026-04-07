@@ -3,34 +3,34 @@
 
 import { GOOGLE_VERTEX_AI } from '../../globals';
 import {
-  ContentType,
-  Message,
-  Params,
-  ToolCall,
+  type ContentType,
+  type Message,
+  type Params,
+  type ToolCall,
   SYSTEM_MESSAGE_ROLES,
   MESSAGE_ROLES,
   Options,
 } from '../../types/requestBody';
 import {
   AnthropicChatCompleteConfig,
-  AnthropicChatCompleteResponse,
-  AnthropicChatCompleteStreamResponse,
+  type AnthropicChatCompleteResponse,
+  type AnthropicChatCompleteStreamResponse,
 } from '../anthropic/chatComplete';
-import {
+import type {
   AnthropicStreamState,
   AnthropicErrorResponse,
 } from '../anthropic/types';
 import {
-  GoogleMessage,
-  GoogleMessagePart,
-  GoogleMessageRole,
-  GoogleToolConfig,
+  type GoogleMessage,
+  type GoogleMessagePart,
+  type GoogleMessageRole,
+  type GoogleToolConfig,
   SYSTEM_INSTRUCTION_DISABLED_MODELS,
   transformOpenAIRoleToGoogleRole,
   transformToolChoiceForGemini,
 } from '../google/chatComplete';
-import { GOOGLE_GENERATE_CONTENT_FINISH_REASON } from '../google/types';
-import {
+import type { GOOGLE_GENERATE_CONTENT_FINISH_REASON } from '../google/types';
+import type {
   ChatCompletionResponse,
   ErrorResponse,
   Logprobs,
@@ -39,15 +39,16 @@ import {
 import {
   generateErrorResponse,
   generateInvalidProviderResponseError,
+  getFakeId,
   transformFinishReason,
 } from '../utils';
+import { transformAnthropicUsageMetadata } from '../utils/transformAnthropicUsageMetadata';
 import { transformGenerationConfig } from './transformGenerationConfig';
 import {
-  GoogleErrorResponse,
-  GoogleGenerateContentResponse,
-  VertexLlamaChatCompleteStreamChunk,
-  VertexLLamaChatCompleteResponse,
-  GoogleSearchRetrievalTool,
+  type GoogleErrorResponse,
+  type GoogleGenerateContentResponse,
+  type VertexLlamaChatCompleteStreamChunk,
+  type VertexLLamaChatCompleteResponse,
   VERTEX_MODALITY,
 } from './types';
 import {
@@ -360,6 +361,10 @@ export const VertexGoogleChatCompleteConfig: ProviderConfig = {
     param: 'generationConfig',
     transform: (params: Params) => transformGenerationConfig(params),
   },
+  modalities: {
+    param: 'generationConfig',
+    transform: (params: Params) => transformGenerationConfig(params),
+  },
   seed: {
     param: 'generationConfig',
     transform: (params: Params) => transformGenerationConfig(params),
@@ -486,7 +491,7 @@ export const GoogleChatCompleteResponseTransform: (
     }, 0);
 
     return {
-      id: 'portkey-' + crypto.randomUUID(),
+      id: getFakeId(),
       object: 'chat.completion',
       created: Math.floor(Date.now() / 1000),
       model: response.modelVersion,
@@ -500,7 +505,7 @@ export const GoogleChatCompleteResponseTransform: (
           for (const part of generation.content?.parts ?? []) {
             if (part.functionCall) {
               toolCalls.push({
-                id: 'portkey-' + crypto.randomUUID(),
+                id: getFakeId(),
                 type: 'function',
                 function: {
                   name: part.functionCall.name,
@@ -739,7 +744,7 @@ export const GoogleChatCompleteStreamChunkTransform: (
               if (part.functionCall) {
                 return {
                   index: idx,
-                  id: 'portkey-' + crypto.randomUUID(),
+                  id: getFakeId(),
                   type: 'function',
                   function: {
                     name: part.functionCall.name,
@@ -895,18 +900,7 @@ export const VertexAnthropicChatCompleteResponseTransform: (
           ),
         },
       ],
-      usage: {
-        prompt_tokens: input_tokens,
-        completion_tokens: output_tokens,
-        total_tokens: totalTokens,
-        prompt_tokens_details: {
-          cached_tokens: cache_read_input_tokens,
-        },
-        ...(shouldSendCacheUsage && {
-          cache_read_input_tokens: cache_read_input_tokens,
-          cache_creation_input_tokens: cache_creation_input_tokens,
-        }),
-      },
+      usage: transformAnthropicUsageMetadata(response.usage),
     };
   }
 
@@ -979,16 +973,9 @@ export const VertexAnthropicChatCompleteStreamChunkTransform: (
       parsedChunk.message?.usage?.cache_creation_input_tokens;
 
     streamState.model = parsedChunk?.message?.model ?? '';
-
-    streamState.usage = {
-      prompt_tokens: parsedChunk.message.usage?.input_tokens,
-      ...(shouldSendCacheUsage && {
-        cache_read_input_tokens:
-          parsedChunk.message?.usage?.cache_read_input_tokens,
-        cache_creation_input_tokens:
-          parsedChunk.message?.usage?.cache_creation_input_tokens,
-      }),
-    };
+    streamState.usage = transformAnthropicUsageMetadata(
+      parsedChunk.message?.usage
+    );
     return (
       `data: ${JSON.stringify({
         id: fallbackId,
@@ -1006,9 +993,7 @@ export const VertexAnthropicChatCompleteStreamChunkTransform: (
             finish_reason: null,
           },
         ],
-        usage: {
-          prompt_tokens: streamState.usage.prompt_tokens,
-        },
+        usage: streamState.usage,
       })}` + '\n\n'
     );
   }
@@ -1016,9 +1001,15 @@ export const VertexAnthropicChatCompleteStreamChunkTransform: (
   if (parsedChunk.type === 'message_delta' && parsedChunk.usage) {
     const totalTokens =
       (streamState?.usage?.prompt_tokens ?? 0) +
-      (streamState?.usage?.cache_creation_input_tokens ?? 0) +
-      (streamState?.usage?.cache_read_input_tokens ?? 0) +
       (parsedChunk.usage.output_tokens ?? 0);
+
+    const usageMetadata = {
+      ...streamState.usage,
+      completion_tokens:
+        parsedChunk.usage?.output_tokens ??
+        streamState.usage?.completion_tokens,
+      total_tokens: totalTokens,
+    };
 
     return (
       `data: ${JSON.stringify({
@@ -1037,14 +1028,7 @@ export const VertexAnthropicChatCompleteStreamChunkTransform: (
             ),
           },
         ],
-        usage: {
-          ...streamState.usage,
-          completion_tokens: parsedChunk.usage?.output_tokens,
-          total_tokens: totalTokens,
-          prompt_tokens_details: {
-            cached_tokens: streamState.usage?.cache_read_input_tokens ?? 0,
-          },
-        },
+        usage: usageMetadata,
       })}` + '\n\n'
     );
   }
