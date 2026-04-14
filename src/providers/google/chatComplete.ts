@@ -228,6 +228,13 @@ export interface GoogleToolConfig {
     mode: GoogleToolChoiceType | undefined;
     allowed_function_names?: string[];
   };
+  retrievalConfig?: {
+    latLng: {
+      latitude: number;
+      longitude: number;
+    };
+    languageCode?: string;
+  };
 }
 
 export const transformOpenAIRoleToGoogleRole = (
@@ -468,7 +475,7 @@ export const GoogleChatCompleteConfig: ProviderConfig = {
       const functionDeclarations: any = [];
       const tools: any = [];
       params.tools?.forEach((tool) => {
-        if (tool.type === 'function') {
+        if (tool.type === 'function' && tool.function) {
           // these are not supported by google
           recursivelyDeleteUnsupportedParameters(tool.function?.parameters);
           delete tool.function?.strict;
@@ -492,8 +499,23 @@ export const GoogleChatCompleteConfig: ProviderConfig = {
   },
   tool_choice: {
     param: 'tool_config',
-    default: '',
+    default: (params: Params) => {
+      const toolConfig = {} as GoogleToolConfig;
+      const googleMapsTool = params.tools?.find(
+        (tool) =>
+          tool.function?.name === 'googleMaps' ||
+          tool.function?.name === 'google_maps'
+      );
+      if (googleMapsTool) {
+        toolConfig.retrievalConfig =
+          googleMapsTool.function?.parameters?.retrievalConfig;
+        return toolConfig;
+      }
+      return;
+    },
+    required: true,
     transform: (params: Params) => {
+      const toolConfig = {} as GoogleToolConfig;
       if (params.tool_choice) {
         const allowedFunctionNames: string[] = [];
         if (
@@ -502,17 +524,24 @@ export const GoogleChatCompleteConfig: ProviderConfig = {
         ) {
           allowedFunctionNames.push(params.tool_choice.function.name);
         }
-        const toolConfig: GoogleToolConfig = {
-          function_calling_config: {
-            mode: transformToolChoiceForGemini(params.tool_choice),
-          },
+        toolConfig.function_calling_config = {
+          mode: transformToolChoiceForGemini(params.tool_choice),
         };
         if (allowedFunctionNames.length > 0) {
           toolConfig.function_calling_config.allowed_function_names =
             allowedFunctionNames;
         }
-        return toolConfig;
       }
+      const googleMapsTool = params.tools?.find(
+        (tool) =>
+          tool.function?.name === 'googleMaps' ||
+          tool.function?.name === 'google_maps'
+      );
+      if (googleMapsTool) {
+        toolConfig.retrievalConfig =
+          googleMapsTool.function?.parameters?.retrievalConfig;
+      }
+      return toolConfig;
     },
   },
   thinking: {
@@ -652,6 +681,24 @@ export const GoogleChatCompleteResponseTransform: (
   }
 
   if ('candidates' in response) {
+    const {
+      promptTokenCount = 0,
+      candidatesTokenCount = 0,
+      totalTokenCount = 0,
+      thoughtsTokenCount = 0,
+      cachedContentTokenCount = 0,
+      promptTokensDetails = [],
+      candidatesTokensDetails = [],
+    } = response.usageMetadata;
+    const inputAudioTokens = promptTokensDetails.reduce((acc, curr) => {
+      if (curr.modality === VERTEX_MODALITY.AUDIO) return acc + curr.tokenCount;
+      return acc;
+    }, 0);
+    const outputAudioTokens = candidatesTokensDetails.reduce((acc, curr) => {
+      if (curr.modality === VERTEX_MODALITY.AUDIO) return acc + curr.tokenCount;
+      return acc;
+    }, 0);
+
     return {
       id: getFakeId(),
       object: 'chat.completion',
@@ -672,6 +719,10 @@ export const GoogleChatCompleteResponseTransform: (
                 function: {
                   name: part.functionCall.name,
                   arguments: JSON.stringify(part.functionCall.args),
+                  ...(!strictOpenAiCompliance &&
+                    part.thoughtSignature && {
+                      thought_signature: part.thoughtSignature,
+                    }),
                 },
                 thoughtSignature: part.thoughtSignature,
               });
@@ -679,7 +730,7 @@ export const GoogleChatCompleteResponseTransform: (
               if (part.thought) {
                 contentBlocks.push({ type: 'thinking', thinking: part.text });
               } else {
-                content = part.text;
+                content = content ? content + part.text : part.text;
                 contentBlocks.push({ type: 'text', text: part.text });
               }
             } else if (part.inlineData) {
@@ -795,7 +846,7 @@ export const GoogleChatCompleteStreamChunkTransform: (
                 });
                 streamState.containsChainOfThoughtMessage = true;
               } else {
-                content = part.text ?? '';
+                content += part.text ?? '';
                 contentBlocks.push({
                   index: streamState.containsChainOfThoughtMessage ? 1 : 0,
                   delta: { text: part.text },
@@ -820,11 +871,49 @@ export const GoogleChatCompleteStreamChunkTransform: (
                     function: {
                       name: part.functionCall.name,
                       arguments: JSON.stringify(part.functionCall.args),
+                      ...(!strictOpenAiCompliance &&
+                        part.thoughtSignature && {
+                          thought_signature: part.thoughtSignature,
+                        }),
                     },
                     thoughtSignature: part.thoughtSignature,
                   };
                 }
               }),
+            };
+          } else if (generation.content?.parts[0]?.inlineData) {
+            const part = generation.content.parts[0];
+            const contentBlocks = [
+              {
+                index: streamState.containsChainOfThoughtMessage ? 1 : 0,
+                delta: {
+                  type: 'image_url',
+                  image_url: {
+                    url: `data:${part.inlineData?.mimeType};base64,${part.inlineData?.data}`,
+                  },
+                },
+              },
+            ];
+            message = {
+              role: 'assistant',
+              content_blocks: contentBlocks,
+            };
+          } else if (generation.content?.parts[0]?.inlineData) {
+            const part = generation.content.parts[0];
+            const contentBlocks = [
+              {
+                index: streamState.containsChainOfThoughtMessage ? 1 : 0,
+                delta: {
+                  type: 'image_url',
+                  image_url: {
+                    url: `data:${part.inlineData?.mimeType};base64,${part.inlineData?.data}`,
+                  },
+                },
+              },
+            ];
+            message = {
+              role: 'assistant',
+              content_blocks: contentBlocks,
             };
           } else if (generation.content?.parts[0]?.inlineData) {
             const part = generation.content.parts[0];

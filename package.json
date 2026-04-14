@@ -1,6 +1,6 @@
 {
   "name": "@portkey-ai/gateway",
-  "version": "1.14.0",
+  "version": "1.15.2",
   "description": "A fast AI gateway by Portkey",
   "repository": {
     "type": "git",
@@ -55,7 +55,7 @@
     "hono": "^4.9.7",
     "jose": "^6.0.11",
     "patch-package": "^8.0.1",
-    "serialize-error": "^8.0.0",
+    "serialize-error": "^8.0.1",
     "url-join": "^5.0.0",
     "ws": "^8.18.0",
     "zod": "^3.22.4"

@@ -1,3 +1,4 @@
+import { Params } from '../../types/requestBody';
 import { ChatCompletionResponse, GroundingMetadata } from '../types';
 
 export interface GoogleErrorResponse {
@@ -24,6 +25,7 @@ export interface GoogleResponseCandidate {
         mimeType: string;
         data: string;
       };
+      thoughtSignature?: string;
     }[];
   };
   logprobsResult?: {
@@ -274,4 +276,10 @@ export enum VERTEX_MODALITY {
   TEXT = 'TEXT',
   IMAGE = 'IMAGE',
   AUDIO = 'AUDIO',
+}
+export interface PortkeyGeminiParams extends Params {
+  image_config?: {
+    aspect_ratio: string; // '16:9', '4:3', '1:1'
+    image_size: string; // '2K', '4K', '8K'
+  };
 }
