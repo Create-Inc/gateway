@@ -25,6 +25,10 @@ export const messagesBaseConfig: ProviderConfig = {
     param: 'metadata',
     required: false,
   },
+  output_config: {
+    param: 'output_config',
+    required: false,
+  },
   service_tier: {
     param: 'service_tier',
     required: false,

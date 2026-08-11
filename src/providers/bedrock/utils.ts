@@ -133,6 +133,9 @@ export const transformAnthropicAdditionalModelRequestFields = (
   if (params['thinking']) {
     additionalModelRequestFields['thinking'] = params['thinking'];
   }
+  if (params['output_config']) {
+    additionalModelRequestFields['output_config'] = params['output_config'];
+  }
   const anthropicBeta =
     providerOptions?.anthropicBeta || params['anthropic_beta'];
   if (anthropicBeta) {
