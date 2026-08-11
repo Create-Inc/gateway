@@ -71,6 +71,7 @@ export interface BedrockConverseAnthropicChatCompletionsParams
     type: string;
     budget_tokens: number;
   };
+  output_config?: Record<string, unknown>;
   anthropic_beta?: string | string[];
 }
 

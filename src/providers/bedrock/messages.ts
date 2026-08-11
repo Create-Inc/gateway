@@ -387,6 +387,11 @@ export const AnthropicBedrockConverseMessagesConfig: ProviderConfig = {
     transform: (params: BedrockMessagesParams, providerOptions?: Options) =>
       transformAnthropicAdditionalModelRequestFields(params, providerOptions),
   },
+  output_config: {
+    param: 'additionalModelRequestFields',
+    transform: (params: BedrockMessagesParams) =>
+      transformAnthropicAdditionalModelRequestFields(params),
+  },
   anthropic_beta: {
     param: 'additionalModelRequestFields',
     transform: (params: BedrockMessagesParams, providerOptions?: Options) =>
