@@ -7,7 +7,7 @@ import { HooksManager } from '../../../../../src/middlewares/hooks';
 import { HookType } from '../../../../../src/middlewares/hooks/types';
 
 // Mock the transformToProviderRequest function
-jest.mock('../../../services/transformToProviderRequest', () => ({
+jest.mock('../../../../../src/services/transformToProviderRequest', () => ({
   transformToProviderRequest: jest.fn().mockReturnValue({ transformed: true }),
 }));
 
@@ -165,6 +165,34 @@ describe('RequestContext', () => {
       );
 
       expect(context.params.temperature).toBe(0.7); // Override wins
+    });
+
+    it('should DELETE a key when its override value is null', () => {
+      const bodyWithThinking = {
+        model: 'gpt-4',
+        thinking: { type: 'enabled', budget_tokens: 4096 },
+        messages: [],
+      };
+      const context = new RequestContext(
+        mockContext,
+        {
+          ...mockProviderOption,
+          overrideParams: {
+            thinking: null,
+            output_config: { effort: 'high' },
+          } as any,
+        },
+        'chatComplete' as endpointStrings,
+        {},
+        bodyWithThinking,
+        'POST',
+        0
+      );
+
+      expect('thinking' in context.params).toBe(false);
+      expect((context.params as any).output_config).toEqual({
+        effort: 'high',
+      });
     });
 
     it('should return empty object for non-JSON request bodies', () => {
@@ -723,7 +751,7 @@ describe('RequestContext', () => {
     it('should transform request body for POST method', () => {
       const {
         transformToProviderRequest,
-      } = require('../../../services/transformToProviderRequest');
+      } = require('../../../../../src/services/transformToProviderRequest');
 
       requestContext.transformToProviderRequestAndSave();
 
@@ -743,7 +771,7 @@ describe('RequestContext', () => {
     it('should not transform for non-POST methods', () => {
       const {
         transformToProviderRequest,
-      } = require('../../../services/transformToProviderRequest');
+      } = require('../../../../../src/services/transformToProviderRequest');
       const context = new RequestContext(
         mockContext,
         mockProviderOption,
