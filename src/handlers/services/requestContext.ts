@@ -52,11 +52,27 @@ export class RequestContext {
     if (this._params !== null) {
       return this._params;
     }
-    return this.requestBody instanceof ReadableStream ||
+    if (
+      this.requestBody instanceof ReadableStream ||
       this.requestBody instanceof FormData ||
       !this.requestBody
-      ? {}
-      : { ...this.requestBody, ...this.overrideParams };
+    ) {
+      return {};
+    }
+    // Merge override_params over the request body. A null override value is a
+    // DELETE: the key is removed from the merged params entirely, rather than
+    // forwarded as a literal null (which providers reject — e.g. Anthropic's
+    // `thinking: Input should be an object`). Callers that hold an opaque,
+    // unparsed request body need deletion to normalize legacy keys away
+    // (strip `thinking` when `output_config.effort` replaces it) without
+    // rewriting the body itself.
+    const merged: Params = { ...this.requestBody, ...this.overrideParams };
+    for (const [key, value] of Object.entries(this.overrideParams)) {
+      if (value === null) {
+        delete merged[key as keyof Params];
+      }
+    }
+    return merged;
   }
 
   set params(params: Params) {
