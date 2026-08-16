@@ -273,6 +273,17 @@ export const transformGeminiToolParameters = (
     const transformed: JsonSchema = {};
 
     for (const [key, value] of Object.entries(node)) {
+      // JSON Schema draft-4 array-of-types form: {"type": ["string", "null"]}.
+      // Gemini's proto Schema.type is a single enum — convert to {"type": "X", "nullable": true}.
+      if (key === 'type' && Array.isArray(value)) {
+        const nonNullTypes = value.filter((t: unknown) => t !== 'null');
+        const hadNull = nonNullTypes.length < value.length;
+        transformed.type =
+          nonNullTypes.length === 1 ? nonNullTypes[0] : nonNullTypes;
+        if (hadNull) transformed.nullable = true;
+        continue;
+      }
+
       if ((key === 'anyOf' || key === 'oneOf') && Array.isArray(value)) {
         const nonNullItems = value.filter((item) => !isNullTypeNode(item));
         const hadNull = nonNullItems.length < value.length;
