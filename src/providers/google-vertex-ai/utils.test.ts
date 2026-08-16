@@ -616,3 +616,97 @@ describe('transformGeminiToolParameters', () => {
     ]);
   });
 });
+
+describe('transformGeminiToolParameters — JSON Schema draft-4 array-of-types form', () => {
+  it('converts ["string", "null"] to { type: "string", nullable: true }', () => {
+    const result = transformGeminiToolParameters({
+      type: 'object',
+      properties: {
+        name: { type: ['string', 'null'] },
+      },
+    });
+    expect(result.properties.name).toEqual({ type: 'string', nullable: true });
+  });
+
+  it('converts ["null", "string"] (null first) to { type: "string", nullable: true }', () => {
+    const result = transformGeminiToolParameters({
+      type: 'object',
+      properties: {
+        label: { type: ['null', 'string'] },
+      },
+    });
+    expect(result.properties.label).toEqual({ type: 'string', nullable: true });
+  });
+
+  it('handles nested objects with array-type fields', () => {
+    const result = transformGeminiToolParameters({
+      type: 'object',
+      properties: {
+        meta: {
+          type: 'object',
+          properties: {
+            description: { type: ['string', 'null'] },
+            count: { type: ['integer', 'null'] },
+          },
+          additionalProperties: false,
+        },
+      },
+      additionalProperties: false,
+    });
+    expect(result.properties.meta.properties.description).toEqual({
+      type: 'string',
+      nullable: true,
+    });
+    expect(result.properties.meta.properties.count).toEqual({
+      type: 'integer',
+      nullable: true,
+    });
+    // additionalProperties is stripped by recursivelyDeleteUnsupportedParameters
+    // before this transformer runs — the transformer itself should pass it through
+    // unchanged (the deletion is not its job)
+    expect(result.properties.meta.additionalProperties).toBe(false);
+  });
+
+  it('does not set nullable when null is absent from the type array', () => {
+    const result = transformGeminiToolParameters({
+      type: 'object',
+      properties: {
+        status: { type: ['string', 'integer'] },
+      },
+    });
+    const status = result.properties.status;
+    // Both types remain as an array (or whatever shape); nullable must not be set
+    expect(status.nullable).toBeUndefined();
+  });
+
+  it('handles the full OpenAI-prompt-shaped schema our integration emits', () => {
+    // This is the shape apps/flux/web prompts.ts teaches generated apps to produce.
+    const schema = {
+      type: 'object',
+      properties: {
+        items: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              value: { type: ['string', 'null'] },
+              count: { type: ['integer', 'null'] },
+            },
+            required: ['id'],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ['items'],
+      additionalProperties: false,
+    };
+
+    const result = transformGeminiToolParameters(schema);
+    const item = result.properties.items.items;
+    expect(item.properties.id.type).toBe('string');
+    expect(item.properties.value).toEqual({ type: 'string', nullable: true });
+    expect(item.properties.count).toEqual({ type: 'integer', nullable: true });
+    expect(item.required).toEqual(['id']);
+  });
+});
