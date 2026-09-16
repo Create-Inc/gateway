@@ -1221,7 +1221,8 @@ export async function recursiveAfterRequestHookHandler(
     retry.onStatusCodes,
     requestTimeout,
     requestHandler,
-    retry.useRetryAfterHeader
+    retry.useRetryAfterHeader,
+    { traceId: requestContext.traceId || hookSpanId }
   ));
 
   // Check if sync hooks are available

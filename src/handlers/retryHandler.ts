@@ -1,6 +1,41 @@
 import retry from 'async-retry';
 import { MAX_RETRY_LIMIT_MS, POSSIBLE_RETRY_STATUS_HEADERS } from '../globals';
 
+type UpstreamTrace = {
+  traceId: string;
+};
+
+function logUpstreamTrace(
+  event: 'upstream_request_started' | 'upstream_request_completed' | 'upstream_request_failed',
+  url: string,
+  options: RequestInit,
+  trace: UpstreamTrace,
+  attempt: number,
+  startedAt: number,
+  response?: Response,
+  error?: unknown
+) {
+  let upstreamHost = 'invalid-url';
+  try {
+    upstreamHost = new URL(url).host;
+  } catch {
+    // Keep malformed URLs out of logs because they can contain credentials.
+  }
+
+  console.info(
+    JSON.stringify({
+      event,
+      traceId: trace.traceId,
+      upstreamHost,
+      method: options.method ?? 'POST',
+      attempt,
+      status: response?.status,
+      durationMs: Date.now() - startedAt,
+      errorName: error instanceof Error ? error.name : undefined,
+    })
+  );
+}
+
 async function fetchWithTimeout(
   url: string,
   options: RequestInit,
@@ -69,7 +104,8 @@ export const retryRequest = async (
   statusCodesToRetry: number[],
   timeout: number | null,
   requestHandler?: () => Promise<Response>,
-  followProviderRetry?: boolean
+  followProviderRetry?: boolean,
+  upstreamTrace?: UpstreamTrace
 ): Promise<{
   response: Response;
   attempt: number | undefined;
@@ -86,6 +122,18 @@ export const retryRequest = async (
   try {
     await retry(
       async (bail: any, attempt: number, rateLimiter: any) => {
+        const attemptStartedAt = Date.now();
+        if (upstreamTrace) {
+          logUpstreamTrace(
+            'upstream_request_started',
+            url,
+            options,
+            upstreamTrace,
+            attempt,
+            attemptStartedAt
+          );
+        }
+
         try {
           let response: Response;
           if (timeout) {
@@ -100,6 +148,18 @@ export const retryRequest = async (
           } else {
             response = await fetch(url, options);
           }
+          if (upstreamTrace) {
+            logUpstreamTrace(
+              'upstream_request_completed',
+              url,
+              options,
+              upstreamTrace,
+              attempt,
+              attemptStartedAt,
+              response
+            );
+          }
+
           if (statusCodesToRetry.includes(response.status)) {
             const errorObj: any = new Error(await response.text());
             errorObj.status = response.status;
@@ -164,6 +224,19 @@ export const retryRequest = async (
           }
           lastResponse = response;
         } catch (error: any) {
+          if (upstreamTrace) {
+            logUpstreamTrace(
+              'upstream_request_failed',
+              url,
+              options,
+              upstreamTrace,
+              attempt,
+              attemptStartedAt,
+              undefined,
+              error
+            );
+          }
+
           if (attempt >= retryCount + 1) {
             bail(error);
             return;
