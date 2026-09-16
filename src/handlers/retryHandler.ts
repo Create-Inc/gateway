@@ -6,7 +6,10 @@ type UpstreamTrace = {
 };
 
 function logUpstreamTrace(
-  event: 'upstream_request_started' | 'upstream_request_completed' | 'upstream_request_failed',
+  event:
+    | 'upstream_request_started'
+    | 'upstream_request_completed'
+    | 'upstream_request_failed',
   url: string,
   options: RequestInit,
   trace: UpstreamTrace,
