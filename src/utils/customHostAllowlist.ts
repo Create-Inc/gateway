@@ -2,8 +2,11 @@
  * Allowlist for caller-supplied custom hosts (`x-portkey-custom-host` and
  * `custom_host` in `x-portkey-config`, at any target depth).
  *
- * Configured with ALLOWED_CUSTOM_HOSTS: a comma-separated list of origins,
- * e.g. `https://api.fireworks.ai,https://openrouter.ai`. A bare hostname
+ * Configured with ALLOWED_CUSTOM_HOSTS: a list of origins separated by commas
+ * and/or whitespace, e.g. `https://api.fireworks.ai,https://openrouter.ai`.
+ * Like other env vars here it may be a path to a file (see
+ * getValueOrFileContents); in that form one origin per line works and `#`
+ * starts a comment. A bare hostname
  * (`api.fireworks.ai`) is shorthand for its https origin. Matching is on the
  * parsed origin (scheme + hostname + port), never on a string prefix, so
  * `https://api.fireworks.ai.attacker.example` or
@@ -18,6 +21,9 @@ const parsedCache = new Map<string, ReadonlySet<string>>();
 function toOrigin(entry: string): string | null {
   const value = entry.trim();
   if (!value) return null;
+  // An unreadable file path is passed through verbatim by
+  // getValueOrFileContents; never let it parse as a hostname.
+  if (value.startsWith('/') || value.startsWith('.')) return null;
   const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(value)
     ? value
     : `https://${value}`;
@@ -40,7 +46,12 @@ export function parseAllowedCustomHosts(
   if (cached) return cached;
 
   const origins = new Set<string>();
-  for (const entry of key.split(',')) {
+  const entries = key
+    .split('\n')
+    .map((line) => line.replace(/#.*$/, ''))
+    .join(',')
+    .split(/[\s,]+/);
+  for (const entry of entries) {
     if (!entry.trim()) continue;
     const origin = toOrigin(entry);
     if (origin === null) {

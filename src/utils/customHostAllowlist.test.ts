@@ -22,11 +22,19 @@ describe('parseAllowedCustomHosts', () => {
     ]);
   });
 
+  test('accepts one origin per line with comments (file form)', () => {
+    expect([
+      ...parseAllowedCustomHosts(
+        '# Fireworks\nhttps://api.fireworks.ai/inference/v1  # trailing\n\n  https://openrouter.ai\n'
+      ),
+    ]).toEqual(['https://api.fireworks.ai', 'https://openrouter.ai']);
+  });
+
   test('drops invalid entries', () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
     expect([
       ...parseAllowedCustomHosts(
-        'file:///etc/passwd,https://user:pw@x.example,https://ok.example'
+        'file:///etc/passwd,https://user:pw@x.example,/app/missing-file.txt,https://ok.example'
       ),
     ]).toEqual(['https://ok.example']);
     warn.mockRestore();
