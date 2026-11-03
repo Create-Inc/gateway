@@ -7,6 +7,10 @@ import {
 } from '../../globals';
 import { configSchema } from './schema/config';
 import { Environment } from '../../utils/env';
+import {
+  isCustomHostAllowed,
+  parseAllowedCustomHosts,
+} from '../../utils/customHostAllowlist';
 
 // Regex patterns for validation (defined once for reusability)
 const VALIDATION_PATTERNS = {
@@ -50,13 +54,14 @@ const BLOCKED_TLDS = [
   '.localhost',
 ];
 
-// Parse allowed custom hosts from environment variable
-// Format: comma-separated list of domains/IPs (e.g., "localhost,127.0.0.1,example.com")
-const TRUSTED_CUSTOM_HOSTS = (c?: Context) => {
+// Hosts exempt from the private/internal-address checks below and from the
+// egress guard (utils/outboundGuard.ts). Format: comma-separated hostnames/IPs.
+// Unset means nothing is trusted: there is deliberately no implicit
+// localhost/127.0.0.1 default, since that let any caller reach loopback.
+export const getTrustedCustomHosts = (c?: Context): ReadonlySet<string> => {
   const envVar = Environment(c)?.TRUSTED_CUSTOM_HOSTS;
   if (!envVar) {
-    // Default allowed hosts for local development
-    return new Set(['localhost', '127.0.0.1', '::1', 'host.docker.internal']);
+    return new Set();
   }
   return new Set(
     envVar
@@ -65,6 +70,11 @@ const TRUSTED_CUSTOM_HOSTS = (c?: Context) => {
       .filter((h: string) => h.length > 0)
   );
 };
+
+// Origins callers may point a custom host at (see utils/customHostAllowlist).
+// Unset means no custom host is accepted.
+export const getAllowedCustomHosts = (c?: Context) =>
+  parseAllowedCustomHosts(Environment(c)?.ALLOWED_CUSTOM_HOSTS);
 
 // Pre-computed IPv4 range boundaries for performance optimization
 const IPV4_RANGES = {
@@ -287,6 +297,12 @@ export function isValidCustomHost(customHost: string, c?: Context) {
     // Block empty hostname
     if (!host) return false;
 
+    // Only explicitly allowlisted origins (ALLOWED_CUSTOM_HOSTS) may be used.
+    // Everything below is defense in depth on top of the allowlist.
+    if (!isCustomHostAllowed(customHost, getAllowedCustomHosts(c))) {
+      return false;
+    }
+
     // Block URLs with encoded characters in hostname (potential bypass attempt)
     if (host.includes('%')) return false;
 
@@ -307,7 +323,7 @@ export function isValidCustomHost(customHost: string, c?: Context) {
     // Limits the number of labels to prevent abuse
     if (hostParts.length > 10) return false;
 
-    const trustedHosts = TRUSTED_CUSTOM_HOSTS(c);
+    const trustedHosts = getTrustedCustomHosts(c);
     // Check against configurable allowed hosts (for local development or trusted domains)
     const isTrustedHost =
       trustedHosts.has(host) ||

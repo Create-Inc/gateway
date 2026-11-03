@@ -9,6 +9,21 @@ import { Context } from 'hono';
 import { createNodeWebSocket } from '@hono/node-ws';
 import { realTimeHandlerNode } from './handlers/realtimeHandlerNode';
 import { requestValidator } from './middlewares/requestValidator';
+import { setGlobalDispatcher } from 'undici';
+import { createGuardedAgent } from './utils/outboundGuard';
+import { getTrustedCustomHosts } from './middlewares/requestValidator';
+import { Environment } from './utils/env';
+
+// Must run before the server accepts traffic: every fetch from here on can
+// only reach public addresses (see utils/outboundGuard.ts).
+setGlobalDispatcher(
+  createGuardedAgent({ exemptHosts: getTrustedCustomHosts() })
+);
+if (!Environment()?.ALLOWED_CUSTOM_HOSTS) {
+  console.warn(
+    'ALLOWED_CUSTOM_HOSTS is not set: every request with a custom host will be rejected.'
+  );
+}
 
 // Extract the port number from the command line arguments
 const defaultPort = 8787;

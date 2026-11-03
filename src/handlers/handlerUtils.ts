@@ -382,6 +382,11 @@ export async function tryPost(
     providerContext,
     requestContext
   );
+  // A custom host is only vetted for its own origin; don't let it bounce the
+  // request somewhere else.
+  if (requestContext.customHost) {
+    fetchOptions.redirect = 'error';
+  }
 
   // Cache Handler
   const cacheService = new CacheService(c, hooksService);

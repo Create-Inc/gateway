@@ -9,6 +9,7 @@ import Providers from '../../providers';
 import { RequestContext } from './requestContext';
 import { ANTHROPIC, AZURE_OPEN_AI } from '../../globals';
 import { GatewayError } from '../../errors/GatewayError';
+import { isValidCustomHost } from '../../middlewares/requestValidator';
 
 export class ProviderContext {
   constructor(private provider: string) {
@@ -94,7 +95,13 @@ export class ProviderContext {
   }
 
   async getFullURL(context: RequestContext): Promise<string> {
-    const baseURL = context.customHost || (await this.getBaseURL(context));
+    const customHost = context.customHost;
+    // Re-checked here because not every route runs requestValidator (e.g.
+    // /v1/proxy/*) and targets can inherit custom_host from parent configs.
+    if (customHost && !isValidCustomHost(customHost, context.honoContext)) {
+      throw new GatewayError('Invalid custom host', 400);
+    }
+    const baseURL = customHost || (await this.getBaseURL(context));
     let url: string;
     if (context.endpoint === 'proxy') {
       url = this.getProxyPath(context, baseURL);
