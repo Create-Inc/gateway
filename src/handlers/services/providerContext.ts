@@ -9,6 +9,8 @@ import Providers from '../../providers';
 import { RequestContext } from './requestContext';
 import { ANTHROPIC, AZURE_OPEN_AI } from '../../globals';
 import { GatewayError } from '../../errors/GatewayError';
+import { hasUserInfo } from '../../utils/providerOptionsPolicy';
+import { findOutboundTargetViolation } from '../../utils/outboundTarget';
 
 export class ProviderContext {
   constructor(private provider: string) {
@@ -94,13 +96,28 @@ export class ProviderContext {
   }
 
   async getFullURL(context: RequestContext): Promise<string> {
-    const baseURL = context.customHost || (await this.getBaseURL(context));
+    const customHost = context.customHost;
+    // Re-checked here because not every route runs requestValidator (e.g.
+    // /v1/proxy/*) and targets can inherit custom_host from parent configs.
+    const violation = findOutboundTargetViolation({
+      customHost,
+      providerOptions: context.providerOption,
+      c: context.honoContext,
+    });
+    if (violation) {
+      throw new GatewayError(violation, 400);
+    }
+    const baseURL = customHost || (await this.getBaseURL(context));
     let url: string;
     if (context.endpoint === 'proxy') {
       url = this.getProxyPath(context, baseURL);
     } else {
       const endpointPath = this.getEndpointPath(context);
       url = `${baseURL}${endpointPath}`;
+    }
+
+    if (hasUserInfo(url)) {
+      throw new GatewayError('Invalid provider URL', 400);
     }
 
     return url;

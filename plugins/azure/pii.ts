@@ -7,7 +7,7 @@ import {
 } from '../types';
 import { post, getCurrentContentPart, setCurrentContentPart } from '../utils';
 import { AzureCredentials } from './types';
-import { getAccessToken } from './utils';
+import { findAzureTargetViolation, getAccessToken } from './utils';
 
 const redact = async (
   documents: any[],
@@ -102,6 +102,11 @@ export const handler: PluginHandler<{ pii: AzureCredentials }> = async (
       verdict: true,
       data,
     };
+  }
+
+  const targetViolation = findAzureTargetViolation(credentials);
+  if (targetViolation) {
+    return { error: new Error(targetViolation), verdict: true, data };
   }
 
   if (!credentials?.apiKey && !credentials?.azureAuthMode) {

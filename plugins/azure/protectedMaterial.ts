@@ -1,7 +1,7 @@
 import { HookEventType, PluginContext, PluginParameters } from '../types';
 import { post, getText } from '../utils';
 import { AzureCredentials } from './types';
-import { getAccessToken } from './utils';
+import { findAzureTargetViolation, getAccessToken } from './utils';
 
 /**
  * Protected Material handler for detecting copyrighted/protected text content.
@@ -46,6 +46,11 @@ export const handler = async (
       verdict: true,
       data,
     };
+  }
+
+  const targetViolation = findAzureTargetViolation(credentials);
+  if (targetViolation) {
+    return { error: new Error(targetViolation), verdict: true, data };
   }
 
   // prefer api key over auth mode

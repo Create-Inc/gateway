@@ -9,6 +9,7 @@ import {
   getURLForOutgoingConnection,
 } from './websocketUtils';
 import { RealtimeLlmEventParser } from '../services/realtimeLlmEventParser';
+import { findOutboundTargetViolation } from '../utils/outboundTarget';
 
 const getOutgoingWebSocket = async (url: string, options: RequestInit) => {
   let outgoingWebSocket: WebSocket | null = null;
@@ -34,6 +35,17 @@ export async function realTimeHandler(c: Context): Promise<Response> {
     const providerOptions = constructConfigFromRequestHeaders(
       requestHeaders
     ) as Options;
+    const violation = findOutboundTargetViolation({
+      customHost: providerOptions.customHost,
+      providerOptions,
+      c,
+    });
+    if (violation) {
+      return new Response(
+        JSON.stringify({ status: 'failure', message: violation }),
+        { status: 400, headers: { 'content-type': 'application/json' } }
+      );
+    }
     const provider = providerOptions.provider ?? '';
     const apiConfig: ProviderAPIConfig = Providers[provider].api;
     const url = getURLForOutgoingConnection(

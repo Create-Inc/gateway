@@ -6,6 +6,8 @@ import {
 } from '../utils';
 import { BedrockAccessKeyCreds, BedrockBody, BedrockParameters } from './type';
 import { bedrockPost, getAssumedRoleCredentials, redactPii } from './util';
+import { isAmbientCredentialsEnabled } from '../../src/utils/ambientCredentials';
+import { isDnsLabel } from '../../src/utils/providerOptionsPolicy';
 
 const REQUIRED_CREDENTIAL_KEYS = [
   'awsAccessKeyId',
@@ -26,7 +28,14 @@ export const handleCredentials = async (
   credentials: BedrockParameters['credentials'] | null
 ) => {
   const finalCredentials = {} as BedrockAccessKeyCreds;
+  // awsRegion is interpolated into the STS and guardrail hostnames.
+  if (credentials?.awsRegion && !isDnsLabel(credentials.awsRegion)) {
+    throw new Error('Invalid awsRegion');
+  }
   if (credentials?.awsAuthType === 'assumedRole') {
+    if (!isAmbientCredentialsEnabled(options.env)) {
+      throw new Error('assumedRole auth is disabled on this gateway');
+    }
     try {
       // Assume the role in the source account
       const sourceRoleCredentials = await getAssumedRoleCredentials(

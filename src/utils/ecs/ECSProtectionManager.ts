@@ -8,6 +8,7 @@
 
 import { EventEmitter } from 'node:events';
 import type { ProtectionSettings } from './types';
+import { internalDispatcher } from '../outboundGuard';
 
 // This class manages the task protection state. It implements basic
 // rate limiting, and emits events to let you know when it changes state.
@@ -137,11 +138,14 @@ export default class ECSProtectionManager extends EventEmitter {
     }
 
     try {
+      // The ECS agent is link-local, which the global egress guard blocks.
+      // ECS_AGENT_URI is operator/runtime config, never request input.
       await fetch(`${this.ECS_AGENT_URI}/task-protection/v1/state`, {
         method: 'PUT',
         body: JSON.stringify(ecsAgentParams),
         headers: { 'Content-Type': 'application/json' },
-      });
+        dispatcher: internalDispatcher,
+      } as RequestInit);
     } catch (e) {
       return this.emit('rejected', e);
     }
