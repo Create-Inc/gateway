@@ -19,6 +19,11 @@ import { Environment } from './utils/env';
 setGlobalDispatcher(
   createGuardedAgent({ exemptHosts: getTrustedCustomHosts() })
 );
+if (!Environment()?.GATEWAY_AUTH_TOKEN) {
+  console.warn(
+    'GATEWAY_AUTH_TOKEN is not set: the gateway accepts unauthenticated requests.'
+  );
+}
 if (!Environment()?.ALLOWED_CUSTOM_HOSTS) {
   console.warn(
     'ALLOWED_CUSTOM_HOSTS is not set: every request with a custom host will be rejected.'

@@ -7,7 +7,7 @@ import {
 } from '../types';
 import { post, getText } from '../utils';
 import { AzureCredentials } from './types';
-import { getAccessToken } from './utils';
+import { findAzureTargetViolation, getAccessToken } from './utils';
 
 const defaultCategories = ['Hate', 'SelfHarm', 'Sexual', 'Violence'];
 
@@ -40,6 +40,11 @@ export const handler: PluginHandler<{
       verdict: true,
       data,
     };
+  }
+
+  const targetViolation = findAzureTargetViolation(credentials);
+  if (targetViolation) {
+    return { error: new Error(targetViolation), verdict: true, data };
   }
 
   // prefer api key over auth mode

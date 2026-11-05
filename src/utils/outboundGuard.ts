@@ -12,8 +12,8 @@
  *
  * Hosts listed in TRUSTED_CUSTOM_HOSTS are exempt (that variable is the
  * explicit opt-in for reaching private hosts such as a self-hosted Ollama).
- * Anything inside the gateway that must reach a private/link-local endpoint
- * has to pass its own `dispatcher` to fetch.
+ * Gateway-internal calls to fixed, operator-configured endpoints (the ECS
+ * agent for task protection) pass `internalDispatcher` explicitly.
  */
 import dns from 'node:dns';
 import { isIP } from 'node:net';
@@ -110,18 +110,9 @@ export function createGuardedLookup({
 export function createGuardedConnector(options: GuardOptions) {
   const base = buildConnector({ lookup: createGuardedLookup(options) as any });
   const connector: buildConnector.connector = (opts, callback) => {
-    const host = normalizeHost(opts.hostname);
-    if (
-      isIP(host) &&
-      !options.exemptHosts.has(host) &&
-      !options.isAllowedAddress(host)
-    ) {
-      callback(
-        new BlockedOutboundAddressError(
-          `Blocked outbound connection to non-public address ${host}`
-        ),
-        null
-      );
+    const literalError = checkLiteralHost(opts.hostname, options);
+    if (literalError) {
+      callback(literalError, null);
       return;
     }
     return base(opts, callback);
@@ -141,4 +132,51 @@ export function createGuardedAgent({
       resolve: dns.lookup as unknown as LookupAllFn,
     }),
   });
+}
+
+/**
+ * Unguarded dispatcher for gateway-internal calls whose URL comes only from
+ * operator configuration, never from a request (e.g. ECS_AGENT_URI).
+ */
+export const internalDispatcher = new Agent();
+
+/** Error for an IP-literal host that isn't allowed, else null. */
+export function checkLiteralHost(
+  hostname: string,
+  {
+    exemptHosts,
+    isAllowedAddress,
+  }: Pick<GuardOptions, 'exemptHosts' | 'isAllowedAddress'>
+): BlockedOutboundAddressError | null {
+  const host = normalizeHost(hostname);
+  if (!isIP(host) || exemptHosts.has(host) || isAllowedAddress(host)) {
+    return null;
+  }
+  return new BlockedOutboundAddressError(
+    `Blocked outbound connection to non-public address ${host}`
+  );
+}
+
+/**
+ * Options for a `ws` WebSocket (or any http.request) that apply the same
+ * egress rules as the fetch dispatcher: a guarded DNS lookup, and an
+ * up-front rejection of non-public IP literals (which skip lookup).
+ */
+export function guardedSocketOptions(
+  url: string,
+  { exemptHosts }: { exemptHosts: ReadonlySet<string> }
+) {
+  const literalError = checkLiteralHost(new URL(url).hostname, {
+    exemptHosts,
+    isAllowedAddress: isPublicAddress,
+  });
+  if (literalError) throw literalError;
+  return {
+    lookup: createGuardedLookup({
+      exemptHosts,
+      isAllowedAddress: isPublicAddress,
+      resolve: dns.lookup as unknown as LookupAllFn,
+    }),
+    followRedirects: false,
+  };
 }

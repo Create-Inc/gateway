@@ -6,6 +6,9 @@ import Providers from '../providers';
 import { Options } from '../types/requestBody';
 import { RealtimeLlmEventParser } from '../services/realtimeLlmEventParser';
 import { WSContext, WSEvents } from 'hono/ws';
+import { findOutboundTargetViolation } from '../utils/outboundTarget';
+import { guardedSocketOptions } from '../utils/outboundGuard';
+import { getTrustedCustomHosts } from '../middlewares/requestValidator';
 
 export async function realTimeHandlerNode(
   c: Context
@@ -18,6 +21,14 @@ export async function realTimeHandlerNode(
     const provider = camelCaseConfig?.provider ?? '';
     const apiConfig: ProviderAPIConfig = Providers[provider].api;
     const providerOptions = camelCaseConfig as Options;
+    const violation = findOutboundTargetViolation({
+      customHost: providerOptions.customHost,
+      providerOptions,
+      c,
+    });
+    if (violation) {
+      throw new Error(violation);
+    }
     const baseUrl = apiConfig.getBaseURL({
       providerOptions,
       c,
@@ -51,8 +62,12 @@ export async function realTimeHandlerNode(
       requestParams: {},
     };
 
+    // `ws` opens its own socket (not fetch), so apply the egress guard here:
+    // non-public IP literals are rejected up front, DNS answers are checked
+    // in the connection's lookup, and redirects are not followed.
     const outgoingWebSocket = new WebSocket(url, {
       headers,
+      ...guardedSocketOptions(url, { exemptHosts: getTrustedCustomHosts(c) }),
     });
     const eventParser = new RealtimeLlmEventParser();
 
@@ -76,9 +91,14 @@ export async function realTimeHandlerNode(
     });
 
     // wait for the upstream websocket to be open
-    const checkWebSocketOpen = new Promise((resolve) => {
+    const checkWebSocketOpen = new Promise((resolve, reject) => {
       outgoingWebSocket.addEventListener('open', () => {
         resolve(true);
+      });
+      // Without this a refused upstream (e.g. a blocked address) would leave
+      // the upgrade hanging forever.
+      outgoingWebSocket.addEventListener('error', (event) => {
+        reject(new Error(event.message));
       });
     });
 

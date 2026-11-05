@@ -1,3 +1,4 @@
+import { assertAmbientCredentialsEnabled } from '../../src/utils/ambientCredentials';
 import { Sha256 } from '@aws-crypto/sha256-js';
 import { SignatureV4 } from '@smithy/signature-v4';
 import { BedrockBody, BedrockResponse, PIIFilter } from './type';
@@ -178,6 +179,7 @@ export async function getAssumedRoleCredentials(
     sessionToken = creds.sessionToken;
   } else {
     // Use environment credentials
+    assertAmbientCredentialsEnabled(env, 'Bedrock guardrail assumedRole auth');
     const { AWS_ASSUME_ROLE_ACCESS_KEY_ID, AWS_ASSUME_ROLE_SECRET_ACCESS_KEY } =
       env;
     accessKeyId = AWS_ASSUME_ROLE_ACCESS_KEY_ID || '';

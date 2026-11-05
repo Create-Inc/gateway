@@ -17,6 +17,11 @@ import { logger as honoLogger } from 'hono/logger';
 
 // Middlewares
 import { requestValidator } from './middlewares/requestValidator';
+import {
+  createGatewayAuthMiddleware,
+  parseGatewayTokens,
+} from './middlewares/gatewayAuth';
+import { Environment } from './utils/env';
 import { hooks } from './middlewares/hooks';
 import { memoryCache } from './middlewares/cache';
 import { protection } from './utils/ecs/protection';
@@ -50,6 +55,14 @@ import { createCacheBackendsRedis } from './shared/services/cache';
 // Create a new Hono server instance
 const app = new Hono();
 const runtime = getRuntimeKey();
+
+// First middleware: nothing else runs for an unauthenticated request.
+app.use(
+  '*',
+  createGatewayAuthMiddleware((c) =>
+    parseGatewayTokens(Environment(c)?.GATEWAY_AUTH_TOKEN)
+  )
+);
 
 if (runtime === 'node' && process.env.REDIS_CONNECTION_STRING) {
   createCacheBackendsRedis(process.env.REDIS_CONNECTION_STRING);

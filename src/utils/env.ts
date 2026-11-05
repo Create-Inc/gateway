@@ -136,6 +136,11 @@ const nodeEnv = {
   ALLOWED_CUSTOM_HOSTS: getValueOrFileContents(
     process.env.ALLOWED_CUSTOM_HOSTS
   ),
+  GATEWAY_AUTH_TOKEN: getValueOrFileContents(process.env.GATEWAY_AUTH_TOKEN),
+  ENABLE_GATEWAY_AMBIENT_CREDENTIALS: getValueOrFileContents(
+    process.env.ENABLE_GATEWAY_AMBIENT_CREDENTIALS,
+    true
+  ),
 };
 
 export const Environment = (c?: Context) => {

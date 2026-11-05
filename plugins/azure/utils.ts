@@ -1,3 +1,6 @@
+import { isAmbientCredentialsEnabled } from '../../src/utils/ambientCredentials';
+import { isDnsLabel } from '../../src/utils/providerOptionsPolicy';
+import { isValidCustomHost } from '../../src/middlewares/requestValidator';
 import { AzureCredentials } from './types';
 
 const cacheExpiry = 15 * 60; // 15 minutes
@@ -121,6 +124,12 @@ export const getAccessToken = async (
   };
   // client id is only set for managed identity
   if (azureAuthMode === 'managed') {
+    if (!isAmbientCredentialsEnabled(env)) {
+      return {
+        token: '',
+        error: 'Azure managed identity auth is disabled on this gateway',
+      };
+    }
     tokenResult = await getAzureManagedIdentityToken(
       credentials?.resourceName ?? '',
       check,
@@ -144,3 +153,21 @@ export const getAccessToken = async (
 
   return tokenResult;
 };
+
+/**
+ * resourceName is interpolated into `https://<name>.cognitiveservices...` and
+ * customHost replaces the host entirely, so both are caller-controlled
+ * destinations: resourceName must be a single DNS label and customHost must
+ * pass the same allowlist as provider custom hosts.
+ */
+export function findAzureTargetViolation(
+  credentials: Pick<AzureCredentials, 'resourceName' | 'customHost'> | undefined
+): string | null {
+  if (credentials?.resourceName && !isDnsLabel(credentials.resourceName)) {
+    return 'Invalid resourceName';
+  }
+  if (credentials?.customHost && !isValidCustomHost(credentials.customHost)) {
+    return 'Invalid customHost';
+  }
+  return null;
+}

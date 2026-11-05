@@ -1,9 +1,11 @@
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { Agent } from 'undici';
+import WebSocket, { WebSocketServer } from 'ws';
 import {
   createGuardedAgent,
   createGuardedConnector,
+  guardedSocketOptions,
   isPublicAddress,
 } from './outboundGuard';
 
@@ -133,5 +135,52 @@ describe('guarded agent', () => {
     expect(res.status).toBe(200);
     expect(await res.text()).toBe('ok');
     await agent.close();
+  });
+});
+
+describe('guardedSocketOptions (realtime WebSocket)', () => {
+  let wss: WebSocketServer;
+  let port: number;
+
+  beforeAll(async () => {
+    wss = new WebSocketServer({ host: '127.0.0.1', port: 0 });
+    await new Promise((resolve) => wss.once('listening', resolve));
+    port = (wss.address() as AddressInfo).port;
+  });
+
+  afterAll(async () => {
+    await new Promise((resolve) => wss.close(resolve));
+  });
+
+  const connect = (url: string, exemptHosts: Set<string>) =>
+    new Promise<string>((resolve) => {
+      const socket = new WebSocket(url, {
+        ...guardedSocketOptions(url, { exemptHosts }),
+      });
+      socket.on('open', () => {
+        socket.close();
+        resolve('open');
+      });
+      socket.on('error', (err) => resolve(`error: ${err.message}`));
+    });
+
+  test('rejects a non-public IP literal before connecting', () => {
+    expect(() =>
+      guardedSocketOptions(`ws://127.0.0.1:${port}/`, {
+        exemptHosts: new Set(),
+      })
+    ).toThrow(/non-public address 127\.0\.0\.1/);
+  });
+
+  test('blocks a hostname that resolves to a non-public address', async () => {
+    expect(await connect(`ws://localhost:${port}/`, new Set())).toMatch(
+      /resolves to non-public address/
+    );
+  });
+
+  test('allows exempt hosts', async () => {
+    expect(
+      await connect(`ws://localhost:${port}/`, new Set(['localhost']))
+    ).toBe('open');
   });
 });

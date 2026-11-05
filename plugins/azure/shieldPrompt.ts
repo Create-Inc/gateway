@@ -1,7 +1,7 @@
 import { HookEventType, PluginContext, PluginParameters } from '../types';
 import { post, getText, getCurrentContentPart } from '../utils';
 import { AzureCredentials } from './types';
-import { getAccessToken } from './utils';
+import { findAzureTargetViolation, getAccessToken } from './utils';
 
 /**
  * Shield Prompt handler for detecting jailbreak and prompt injection attacks.
@@ -42,6 +42,11 @@ export const handler = async (
       verdict: true,
       data,
     };
+  }
+
+  const targetViolation = findAzureTargetViolation(credentials);
+  if (targetViolation) {
+    return { error: new Error(targetViolation), verdict: true, data };
   }
 
   // prefer api key over auth mode

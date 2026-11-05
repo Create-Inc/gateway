@@ -14,6 +14,7 @@ import { BedrockFinetuneRecord, BedrockInferenceProfile } from './types';
 import { FinetuneRequest } from '../types';
 import { BEDROCK } from '../../globals';
 import { Environment } from '../../utils/env';
+import { isAmbientCredentialsEnabled } from '../../utils/ambientCredentials';
 
 export const getAwsEndpointDomain = (c: Context) =>
   Environment(c).AWS_ENDPOINT_DOMAIN || 'amazonaws.com';
@@ -263,6 +264,12 @@ export async function getAssumedRoleCredentials(
     sessionToken = creds.sessionToken;
   } else {
     // Use environment credentials
+    if (!isAmbientCredentialsEnabled(env(c))) {
+      throw new GatewayError(
+        'Bedrock assumedRole auth is disabled on this gateway',
+        400
+      );
+    }
     const { AWS_ASSUME_ROLE_ACCESS_KEY_ID, AWS_ASSUME_ROLE_SECRET_ACCESS_KEY } =
       env(c);
     accessKeyId = AWS_ASSUME_ROLE_ACCESS_KEY_ID || '';
@@ -392,6 +399,12 @@ export async function providerAssumedRoleCredentials(
   c: Context,
   providerOptions: Options
 ) {
+  if (!isAmbientCredentialsEnabled(env(c))) {
+    throw new GatewayError(
+      'Bedrock assumedRole auth is disabled on this gateway',
+      400
+    );
+  }
   try {
     // Assume the role in the source account
     const sourceRoleCredentials = await getAssumedRoleCredentials(

@@ -9,7 +9,8 @@ import Providers from '../../providers';
 import { RequestContext } from './requestContext';
 import { ANTHROPIC, AZURE_OPEN_AI } from '../../globals';
 import { GatewayError } from '../../errors/GatewayError';
-import { isValidCustomHost } from '../../middlewares/requestValidator';
+import { hasUserInfo } from '../../utils/providerOptionsPolicy';
+import { findOutboundTargetViolation } from '../../utils/outboundTarget';
 
 export class ProviderContext {
   constructor(private provider: string) {
@@ -98,8 +99,13 @@ export class ProviderContext {
     const customHost = context.customHost;
     // Re-checked here because not every route runs requestValidator (e.g.
     // /v1/proxy/*) and targets can inherit custom_host from parent configs.
-    if (customHost && !isValidCustomHost(customHost, context.honoContext)) {
-      throw new GatewayError('Invalid custom host', 400);
+    const violation = findOutboundTargetViolation({
+      customHost,
+      providerOptions: context.providerOption,
+      c: context.honoContext,
+    });
+    if (violation) {
+      throw new GatewayError(violation, 400);
     }
     const baseURL = customHost || (await this.getBaseURL(context));
     let url: string;
@@ -108,6 +114,10 @@ export class ProviderContext {
     } else {
       const endpointPath = this.getEndpointPath(context);
       url = `${baseURL}${endpointPath}`;
+    }
+
+    if (hasUserInfo(url)) {
+      throw new GatewayError('Invalid provider URL', 400);
     }
 
     return url;

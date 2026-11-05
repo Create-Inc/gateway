@@ -1,4 +1,5 @@
 import { AZURE_OPEN_AI } from '../../globals';
+import { assertAmbientCredentialsEnabled } from '../../utils/ambientCredentials';
 import { Options } from '../../types/requestBody';
 import { OpenAIErrorResponseTransform } from '../openai/utils';
 import { ErrorResponse } from '../types';
@@ -44,6 +45,7 @@ export async function getAzureManagedIdentityToken(
   resource: string,
   clientId?: string
 ) {
+  assertAmbientCredentialsEnabled(null, 'Azure managed identity auth');
   try {
     const response = await fetch(
       `http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=${encodeURIComponent(resource)}${clientId ? `&client_id=${encodeURIComponent(clientId)}` : ''}`,
@@ -75,6 +77,7 @@ export async function getAzureWorkloadIdentityToken(
   federatedToken: string,
   scope = 'https://cognitiveservices.azure.com/.default'
 ) {
+  assertAmbientCredentialsEnabled(null, 'Azure workload identity auth');
   try {
     const url = `${authorityHost}/${tenantId}/oauth2/v2.0/token`;
     const params = new URLSearchParams({
